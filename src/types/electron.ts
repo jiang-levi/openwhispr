@@ -2790,6 +2790,15 @@ declare global {
         contextBias?: string[];
       }) => Promise<ProxyTranscriptionResult>;
 
+      // Zoom Scribe transcription (Fast HTTP; Live streams over dictation-realtime)
+      proxyZoomScribeTranscription?: (data: {
+        audioBuffer: ArrayBuffer;
+        mimeType?: string;
+        model?: string;
+        language?: string;
+        vocabulary?: string[];
+      }) => Promise<ProxyTranscriptionResult>;
+
       // Corti credential management
       getCortiClientId?: () => Promise<string | null>;
       saveCortiClientId?: (key: string) => Promise<void>;
@@ -2815,6 +2824,8 @@ declare global {
       saveDeepgramKey?: (key: string) => Promise<void>;
       getAssemblyAIKey?: () => Promise<string | null>;
       saveAssemblyAIKey?: (key: string) => Promise<void>;
+      getZoomScribeKey?: () => Promise<string | null>;
+      saveZoomScribeKey?: (key: string) => Promise<void>;
 
       // Custom endpoint API keys
       getCustomTranscriptionKey?: () => Promise<string | null>;

@@ -965,6 +965,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil streams using Voxtral Mini 4B, and batches with Voxtral Small 24B.",
       "docsLink": "Read the docs"
+    },
+    "zoom": {
+      "premiumNote": "English Pro requires Zoom Scribe premium model access."
     }
   },
   "hooks": {
@@ -3327,6 +3330,9 @@
         "assemblyai_universal_streaming_english": "Immutable realtime transcripts, English",
         "assemblyai_universal_streaming_multilingual": "Immutable realtime transcripts, multilingual",
         "assemblyai_universal_3_5_pro": "Highest accuracy realtime, 18 languages",
+        "zoom_scribe_multilingual": "Realtime and file transcription in 10 languages, with auto-detect",
+        "zoom_scribe_en": "Realtime and file transcription, English only",
+        "zoom_scribe_en_pro": "Highest accuracy for English. Requires Zoom Scribe premium model access.",
         "assemblyai_universal_3_6_pro": "Highest accuracy realtime, 32 languages",
         "mistral_voxtral_mini_transcribe_3_0": "Fast transcription in 50+ languages (preview)",
         "mistral_voxtral_small_transcribe_3_0": "Most accurate Voxtral, 50+ languages (preview)",
@@ -6262,7 +6268,8 @@
     "details": {
       "provider": "Provider",
       "requestId": "Request ID"
-    }
+    },
+    "modelUnavailable": "{{provider}} can't use “{{model}}” on this account. It may require premium model access."
   },
   "toneStyle": {
     "title": "Tone & Style",

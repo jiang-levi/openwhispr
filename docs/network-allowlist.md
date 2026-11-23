@@ -105,6 +105,7 @@ provider. Skip any provider not in use.
 | `api.deepgram.com`                                                               | WSS, HTTPS | 443  | Deepgram API key configured. Realtime-only: dictation and note recording open a WSS session (there is no file-upload or retry path); the key check calls `/v1/auth/token` over HTTPS.                                                                                                                                                                    |
 | `streaming.assemblyai.com`                                                       | WSS, HTTPS | 443  | AssemblyAI API key configured. `/v3/token` mints the short-lived session token over HTTPS; the live session is WSS. Realtime-only, like Deepgram.                                                                                                                                                                                                        |
 | `api.assemblyai.com`                                                             | HTTPS      | 443  | AssemblyAI API key configured. Credential check when onboarding or Settings checks the key (`/v2/transcript`).                                                                                                                                                                                                                                           |
+| `api.zoom.us`                                                                    | WSS, HTTPS | 443  | Zoom Scribe API key configured. Live (dictation, meetings) opens WSS on `/v2/aiservices/scribe/live`; batch transcription and key check use HTTPS on `/v2/aiservices/scribe/transcribe`.                                                                                                                                                                 |
 | `openrouter.ai`                                                                  | HTTPS      | 443  | OpenRouter selected as a reasoning or transcription provider (`/api/v1/models` is fetched even without a key; the key check calls `/api/v1/key`).                                                                                                                                                                                                        |
 
 ## Organization-managed audio (only if configured)
@@ -176,6 +177,7 @@ curl -v https://api.openwhispr.com/api/health
 curl -v https://api.deepgram.com/v1/projects
 curl -v https://api.openai.com/v1/models
 curl -v https://streaming.assemblyai.com/v3/token
+curl -v https://api.zoom.us/v2/aiservices/scribe/transcribe
 curl -v https://generativelanguage.googleapis.com/v1beta/models
 
 # Model downloads (only if local mode is in use)

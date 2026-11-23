@@ -965,6 +965,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil trasmette con Voxtral Mini 4B ed elabora i batch con Voxtral Small 24B.",
       "docsLink": "Leggi la documentazione"
+    },
+    "zoom": {
+      "premiumNote": "English Pro richiede l’accesso ai modelli premium di Zoom Scribe."
     }
   },
   "hooks": {
@@ -3229,6 +3232,9 @@
         "assemblyai_universal_streaming_english": "Trascrizioni in tempo reale immutabili, inglese",
         "assemblyai_universal_streaming_multilingual": "Trascrizioni in tempo reale immutabili, multilingue",
         "assemblyai_universal_3_5_pro": "Massima precisione in tempo reale, 18 lingue",
+        "zoom_scribe_multilingual": "Trascrizione in tempo reale e di file in 10 lingue, con rilevamento automatico",
+        "zoom_scribe_en": "Trascrizione in tempo reale e di file solo in inglese",
+        "zoom_scribe_en_pro": "Massima precisione in inglese. Richiede l’accesso ai modelli premium di Zoom Scribe.",
         "assemblyai_universal_3_6_pro": "Massima precisione in tempo reale, 32 lingue",
         "mistral_voxtral_mini_transcribe_3_0": "Trascrizione veloce in oltre 50 lingue (anteprima)",
         "mistral_voxtral_small_transcribe_3_0": "Il Voxtral più preciso, oltre 50 lingue (anteprima)",
@@ -6283,7 +6289,8 @@
     "details": {
       "provider": "Provider",
       "requestId": "ID richiesta"
-    }
+    },
+    "modelUnavailable": "{{provider}} non può usare “{{model}}” con questo account. Potrebbe essere necessario l’accesso ai modelli premium."
   },
   "toneStyle": {
     "title": "Tono e stile",

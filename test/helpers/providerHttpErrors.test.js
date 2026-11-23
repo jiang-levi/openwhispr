@@ -454,3 +454,26 @@ test("a model name is inserted literally, even with $ patterns", async () => {
   });
   assert.equal(error.message, "OpenAI doesn't recognize the model “we$&ird-$'model”.");
 });
+
+test("an UNSUPPORTED_MODEL 400 is a model failure with the model-unavailable message", async () => {
+  const c = await classify({
+    provider: "Zoom Scribe",
+    model: "zoom-scribe-en-pro",
+    status: 400,
+    body: '{"reason":"UNSUPPORTED_MODEL"}',
+  });
+  assert.equal(c.code, "PROVIDER_MODEL_NOT_FOUND");
+  assert.equal(c.messageKey, "providerErrors.modelUnavailable");
+  assert.equal(c.messageParams.model, "zoom-scribe-en-pro");
+  assert.match(c.message, /premium model access/);
+});
+
+test("the underscore form of an unsupported model is recognised by the model signal", async () => {
+  const c = await classify({
+    provider: "Zoom Scribe",
+    status: 400,
+    body: "UNSUPPORTED_MODEL",
+  });
+  assert.equal(c.code, "PROVIDER_MODEL_NOT_FOUND");
+  assert.equal(c.messageKey, "providerErrors.modelNotFoundNoModel");
+});

@@ -559,3 +559,40 @@ test("Orukeet fallback preserves the custom Bearer key", async () => {
   assert.equal(route.endpoint, "https://orukeet.gizmovoice.ai/v1/audio/transcriptions");
   assert.deepEqual(route.auth, { scheme: "bearer", keyRef: "custom" });
 });
+
+test("Zoom Scribe routes to the proxied batch transport, never to the OpenAI endpoint", async () => {
+  const { resolveTranscriptionRoute, STREAMING_ONLY_PROVIDERS } = await load();
+  assert.equal(STREAMING_ONLY_PROVIDERS.has("zoom"), false);
+  const route = resolveTranscriptionRoute({
+    settings: {
+      transcriptionMode: "providers",
+      cloudTranscriptionProvider: "zoom",
+      cloudTranscriptionModel: "zoom-scribe-en-pro",
+      preferredLanguage: "en-US",
+    },
+    hasProviderKey: false,
+  });
+  assert.equal(route.transport, "proxied");
+  assert.equal(route.provider, "zoom");
+  assert.equal(route.model, "zoom-scribe-en-pro");
+  assert.equal(route.language, "en");
+  assert.equal(route.sizeCapBytes, 50 * 1024 * 1024);
+  assert.equal(route.endpoint, undefined);
+});
+
+test("Zoom Scribe with a stale model id falls back to the multilingual default", async () => {
+  const { resolveTranscriptionRoute, resolveByokModel } = await load();
+  assert.equal(resolveByokModel("zoom", "gpt-transcribe"), "zoom-scribe-multilingual");
+  assert.equal(resolveByokModel("zoom", "zoom-scribe-en"), "zoom-scribe-en");
+  const route = resolveTranscriptionRoute({
+    settings: { cloudTranscriptionProvider: "zoom", cloudTranscriptionModel: "whisper-1" },
+  });
+  assert.equal(route.transport, "proxied");
+  assert.equal(route.model, "zoom-scribe-multilingual");
+});
+
+test("the Zoom input limit lets over-cap recordings reach the m4a transcode path", async () => {
+  const { byokFileSizeLimit } = await load();
+  assert.equal(byokFileSizeLimit("zoom"), 500 * 1024 * 1024);
+  assert.ok(byokFileSizeLimit("zoom") > 60 * 1024 * 1024);
+});

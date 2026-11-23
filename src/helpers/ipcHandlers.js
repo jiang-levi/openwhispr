@@ -75,6 +75,18 @@ const { createNoteAttendeesLookup, searchContacts } = require("./connectors/cont
 // needs {id, baseUrl} per provider.
 const transcriptionProviderBaseUrls = () => modelRegistryData.transcriptionProviders;
 // Classified errors show the provider's display name; routes only carry its id.
+// Zoom Scribe Fast for the batch routes (retry, upload). The dictation batch
+// fallback reaches the same client through proxy-zoom-scribe-transcription.
+const zoomScribeDeps = (apiKey) => ({
+  apiKey,
+  proxyFetch: (url, init = {}) => net.fetch(url, { ...init, useSessionCookies: false }),
+  transcodeToM4a: (buffer) => require("./ffmpegUtils").convertBufferToM4a(buffer),
+});
+// Batch routes (retry, upload) have no custom-dictionary input, matching the
+// other providers on those paths; the content is sniffed rather than trusted.
+const transcribeZoomScribeRoute = ({ apiKey, audioBuffer, mimeType, model, language }) =>
+  transcribeWithZoomScribe({ ...zoomScribeDeps(apiKey), audioBuffer, mimeType, model, language });
+
 const transcriptionProviderName = (id) =>
   modelRegistryData.transcriptionProviders.find((p) => p.id === id)?.name || id;
 // ipcMain.handle keeps only the message when a promise rejects, dropping custom
@@ -168,6 +180,12 @@ const { TINFOIL_REALTIME_MODEL } = require("./tinfoilRealtimeStreaming");
 const { getTinfoilChatModels } = require("./tinfoilCatalog");
 const { transcribeWithTinfoil } = require("./tinfoilTranscription");
 const { transcribeWithGemini } = require("./geminiTranscription");
+const { ZoomScribeStreaming } = require("./zoomScribeStreaming");
+const { ZOOM_SCRIBE_WARM_IDLE_MS } = require("./zoomScribeProtocol");
+const {
+  transcribeWithZoomScribe,
+  transcribeZoomScribeProxyRequest,
+} = require("./zoomScribeTranscription");
 const AudioStorageManager = require("./audioStorage");
 const { SkillLibrary } = require("./skills/skillLibrary");
 const { registerSkillsIpc } = require("./skills/skillsIpc");
@@ -239,6 +257,7 @@ const {
   ALLOWED_MEETING_PROVIDERS,
   getMeetingStreamingClient,
   getMeetingConnectionKey,
+  sendMeetingStreamingAudio,
 } = require("./meetingStreamingProviders");
 const {
   createServerTokenPoster,
@@ -5782,6 +5801,17 @@ class IPCHandlers {
       })
     );
 
+    ipcMain.handle(
+      "proxy-zoom-scribe-transcription",
+      serializeIpcError(async (event, { audioBuffer, mimeType, model, language, vocabulary }) => {
+        const { text, model: usedModel } = await transcribeZoomScribeProxyRequest(
+          { audioBuffer, mimeType: mimeType || "audio/webm", model, language, vocabulary },
+          zoomScribeDeps(this.environmentManager.getZoomScribeKey())
+        );
+        return { text, model: usedModel };
+      })
+    );
+
     ipcMain.handle("get-corti-client-id", async () => {
       return this.environmentManager.getCortiClientId();
     });
@@ -8230,6 +8260,14 @@ class IPCHandlers {
             apiKey: this.environmentManager.getTinfoilKey(),
           });
           result = { text, source: "tinfoil", model };
+        } else if (route.transport === "proxied" && route.provider === "zoom") {
+          const { text } = await transcribeZoomScribeRoute({
+            apiKey: this.environmentManager.getZoomScribeKey(),
+            audioBuffer: buffer,
+            model: route.model,
+            language: route.language,
+          });
+          result = { text, source: "zoom", model: route.model };
         } else if (route.transport === "proxied" && route.provider === "corti") {
           // Corti uses OAuth + an interaction-based REST flow, so it can't use
           // the generic fetch below.
@@ -8872,22 +8910,6 @@ class IPCHandlers {
       meetingReconnectAudioBuffers = { mic: [], system: [] };
       meetingReconnectAudioBytes = { mic: 0, system: 0 };
       meetingReconnectReplaySources = new Set();
-    };
-
-    const sendMeetingStreamingAudio = (streaming, buffer, capturedAt = null) => {
-      const firstSampleAt = streaming.audioBytesSent === 0 ? capturedAt : null;
-      const sent = streaming.sendAudio(buffer);
-      if (
-        sent &&
-        streaming.isConnected &&
-        firstSampleAt !== null &&
-        streaming.sessionStartedAt != null
-      ) {
-        // Deepgram/Corti time segments from the first PCM sample, which can
-        // precede a replacement socket's creation when replaying recovery audio.
-        streaming.sessionStartedAt = firstSampleAt;
-      }
-      return sent;
     };
 
     const queueMeetingReconnectAudio = (source, buffer, capturedAt = null) => {
@@ -10455,7 +10477,9 @@ class IPCHandlers {
       const idleTimeoutMs =
         this._dictationStreaming instanceof OrukeetStreaming
           ? ORUKEET_IDLE_TIMEOUT_MS
-          : DICTATION_IDLE_TIMEOUT_MS;
+          : this._dictationStreaming instanceof ZoomScribeStreaming
+            ? ZOOM_SCRIBE_WARM_IDLE_MS
+            : DICTATION_IDLE_TIMEOUT_MS;
       this._dictationIdleTimer = setTimeout(() => {
         if (this._dictationStreaming) {
           debugLogger.debug("Closing idle dictation warmup connection");
@@ -10483,6 +10507,8 @@ class IPCHandlers {
         provider === "openai-realtime"
           ? OpenAIRealtimeStreaming.normalizeLanguage(options.language)
           : null,
+        // Zoom Scribe's session.update pins the language at connect time.
+        provider === "zoom-realtime" ? options.language || null : null,
       ]);
     };
 
@@ -10521,7 +10547,9 @@ class IPCHandlers {
         const streaming =
           provider === "orukeet"
             ? new OrukeetStreaming(isCloud ? MANAGED_STREAM_OPTIONS : {})
-            : new OpenAIRealtimeStreaming();
+            : provider === "zoom-realtime"
+              ? new ZoomScribeStreaming()
+              : new OpenAIRealtimeStreaming();
         if (provider === "orukeet")
           streaming.onUsageError = (metadata) =>
             debugLogger.error("Combined cleanup usage could not be recorded", metadata);
@@ -10549,6 +10577,16 @@ class IPCHandlers {
                 baseUrl: options.baseUrl,
               });
             }
+            return;
+          }
+          if (provider === "zoom-realtime") {
+            const apiKey = await fetchRealtimeToken(event, { mode: options.mode, provider });
+            await streaming.connect({
+              apiKey,
+              model: options.model,
+              language: options.language,
+              keyterms: options.keyterms,
+            });
             return;
           }
           const apiKey = await fetchRealtimeToken(event, {
@@ -12493,6 +12531,19 @@ class IPCHandlers {
                 });
               }
               return { success: true, text: data.data.text };
+            }
+
+            // Zoom Scribe applies its own cap: the encoded body is measured after
+            // base64, and an over-cap file is re-encoded to m4a rather than refused.
+            if (route.transport === "proxied" && route.provider === "zoom") {
+              const { text } = await transcribeZoomScribeRoute({
+                apiKey: this.environmentManager.getZoomScribeKey(),
+                audioBuffer: fs.readFileSync(realByok),
+                mimeType: providerContentType(realByok),
+                model: route.model,
+                language: route.language,
+              });
+              return { success: true, text };
             }
 
             const fileSize = fs.statSync(realByok).size;

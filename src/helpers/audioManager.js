@@ -549,6 +549,13 @@ const STREAMING_PROVIDERS = {
     onSessionEnd: (cb) => window.electronAPI.onCortiSessionEnd(cb),
   },
   "tinfoil-realtime": makeDictationRealtimeProvider("tinfoil-realtime"),
+  // Zoom's final text is the accumulated transcript returned by stop(), which
+  // runs session.close -> session.closed (5 s cap) inside the main process.
+  "zoom-realtime": {
+    ...makeDictationRealtimeProvider("zoom-realtime"),
+    finalCeilingMs: 3000,
+    preferStopTranscript: true,
+  },
 };
 
 // Batch providers that must transcribe via a main-process proxy (CORS,
@@ -579,6 +586,17 @@ const MANAGED_TRANSCRIPTION_SPEC = {
 // `echoPrompt` gives the dictionary in the order the payload carries it, for
 // the trailing-echo strip; without one it's the Whisper-order `prompt`.
 const PROXY_TRANSCRIPTION_PROVIDERS = {
+  zoom: {
+    displayName: "Zoom Scribe",
+    ipc: () => window.electronAPI?.proxyZoomScribeTranscription,
+    buildPayload: ({ audioBuffer, model, language, keyterms, mimeType }) => ({
+      audioBuffer,
+      mimeType,
+      model,
+      language,
+      vocabulary: keyterms.length > 0 ? keyterms : undefined,
+    }),
+  },
   tinfoil: {
     displayName: "Tinfoil",
     ipc: () => window.electronAPI?.proxyTinfoilTranscription,
@@ -2883,6 +2901,18 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         throw err;
       }
       apiKey = null;
+    } else if (provider === "zoom") {
+      apiKey = s.zoomScribeApiKey;
+      if (!apiKey?.trim()) {
+        apiKey = await window.electronAPI.getZoomScribeKey?.();
+      }
+      if (!apiKey?.trim()) {
+        const err = new Error(
+          "Zoom Scribe API key not found. Please set your API key in the Control Panel."
+        );
+        err.code = "API_KEY_MISSING";
+        throw err;
+      }
     } else if (provider === "tinfoil") {
       apiKey = s.tinfoilApiKey;
       if (!apiKey?.trim()) {
@@ -4977,6 +5007,11 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     // Corti (BYOK) streams over its own WSS — independent of OpenWhispr Cloud.
     if (s.cloudTranscriptionProvider === "corti" && s.cloudTranscriptionMode === "byok") {
       return !!(s.cortiClientId && s.cortiClientSecret);
+    }
+
+    // Zoom Scribe streams (Live) on its BYOK key; its batch route is Fast.
+    if (s.cloudTranscriptionMode === "byok" && s.cloudTranscriptionProvider === "zoom") {
+      return Boolean(getTranscriptionApiKey("zoom", s));
     }
 
     // Tinfoil realtime streams without an OpenWhispr account.

@@ -98,6 +98,15 @@ const REALTIME_TOKEN_PROVIDERS = {
     return duplicate(streams, token);
   },
 
+  // Zoom Scribe has no handshake token: the saved key opens the Live socket.
+  "zoom-realtime": async ({ environmentManager }, options, streams) => {
+    const apiKey = environmentManager.getZoomScribeKey();
+    if (!apiKey) {
+      throw new Error("No Zoom Scribe API key configured. Add your key in Settings.");
+    }
+    return duplicate(streams, apiKey);
+  },
+
   "tinfoil-realtime": async ({ environmentManager }, options, streams) => {
     const apiKey = environmentManager.getTinfoilKey();
     if (!apiKey) {

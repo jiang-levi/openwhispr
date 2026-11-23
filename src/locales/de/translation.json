@@ -965,6 +965,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil streamt mit Voxtral Mini 4B und verarbeitet Batches mit Voxtral Small 24B.",
       "docsLink": "Zur Dokumentation"
+    },
+    "zoom": {
+      "premiumNote": "English Pro erfordert Zugriff auf die Premium-Modelle von Zoom Scribe."
     }
   },
   "hooks": {
@@ -3327,6 +3330,9 @@
         "assemblyai_universal_streaming_english": "Unveränderliche Echtzeit-Transkripte, Englisch",
         "assemblyai_universal_streaming_multilingual": "Unveränderliche Echtzeit-Transkripte, mehrsprachig",
         "assemblyai_universal_3_5_pro": "Höchste Genauigkeit in Echtzeit, 18 Sprachen",
+        "zoom_scribe_multilingual": "Echtzeit- und Dateitranskription in 10 Sprachen mit automatischer Spracherkennung",
+        "zoom_scribe_en": "Echtzeit- und Dateitranskription nur auf Englisch",
+        "zoom_scribe_en_pro": "Höchste Genauigkeit für Englisch. Erfordert Zugriff auf die Premium-Modelle von Zoom Scribe.",
         "assemblyai_universal_3_6_pro": "Höchste Genauigkeit in Echtzeit, 32 Sprachen",
         "mistral_voxtral_mini_transcribe_3_0": "Schnelle Transkription in über 50 Sprachen (Vorschau)",
         "mistral_voxtral_small_transcribe_3_0": "Genauestes Voxtral, über 50 Sprachen (Vorschau)",
@@ -6262,7 +6268,8 @@
     "details": {
       "provider": "Anbieter",
       "requestId": "Anfrage-ID"
-    }
+    },
+    "modelUnavailable": "{{provider}} kann „{{model}}“ mit diesem Konto nicht verwenden. Dafür ist möglicherweise Zugriff auf Premium-Modelle erforderlich."
   },
   "toneStyle": {
     "title": "Ton & Stil",

@@ -1,3 +1,6 @@
+const { PROVIDER_ERROR_CODES } = require("./providerHttpErrors");
+const { ZoomScribeStreaming } = require("./zoomScribeStreaming");
+
 const ENDPOINTS = {
   openai: "https://api.openai.com/v1/models",
   groq: "https://api.groq.com/openai/v1/models",
@@ -421,13 +424,66 @@ async function probe(endpoint, request, fetchImpl, judge, init = { method: "GET"
   }
 }
 
+// Zoom Scribe has no model list or cheap REST probe. A Live handshake with no
+// audio proves the key: session.updated means accepted, and the refusal is an HTTP
+// upgrade error (401 with a JSON body), which the Live client classifies.
+const ZOOM_SCRIBE_TEST_MODEL = "zoom-scribe-multilingual";
+
+function zoomFailure(error) {
+  const code = error?.code;
+  if (code === PROVIDER_ERROR_CODES.AUTH_FAILED) {
+    return { errorCode: "credentialsRejected", error: error.message, status: error.status };
+  }
+  if (code === PROVIDER_ERROR_CODES.TIMEOUT) {
+    return { errorCode: "timeout", error: error.message, unverified: true };
+  }
+  if (code === PROVIDER_ERROR_CODES.UNREACHABLE || code === PROVIDER_ERROR_CODES.NO_RESPONSE) {
+    return { errorCode: "network", error: error.message, unverified: true };
+  }
+  if (!code && /timeout/i.test(error?.message || "")) {
+    return { errorCode: "timeout", error: error.message, unverified: true };
+  }
+  return {
+    errorCode: "providerStatus",
+    error: error?.message || "The provider returned an error.",
+    ...(typeof error?.status === "number" ? { status: error.status } : {}),
+  };
+}
+
+async function testZoomScribeKey(config, createSocket) {
+  const apiKey = String(config?.apiKey || "").trim();
+  if (!apiKey) {
+    throw new ConnectionTestError("apiKeyRequired", "Add an API key before testing.");
+  }
+  const client = new ZoomScribeStreaming(createSocket ? { createSocket } : {});
+  try {
+    await client.connect({ apiKey, model: ZOOM_SCRIBE_TEST_MODEL });
+  } catch (error) {
+    return { success: false, ...zoomFailure(error) };
+  }
+  await client.disconnect({ commit: false });
+  return { success: true };
+}
+
 // `runPaidCheck(key, check)` runs a check that spends the user's credits. The main process
 // passes one that runs it once per key (paidKeyCheck.js).
 async function testProviderConnection(
   config,
   fetchImpl = fetch,
-  runPaidCheck = (_key, check) => check()
+  runPaidCheck = (_key, check) => check(),
+  createZoomSocket
 ) {
+  if (String(config?.provider || "").toLowerCase() === "zoom") {
+    try {
+      return await testZoomScribeKey(config, createZoomSocket);
+    } catch (error) {
+      return {
+        success: false,
+        errorCode: error.errorCode || "apiKeyRequired",
+        error: error.message,
+      };
+    }
+  }
   let request;
   try {
     request = resolveProviderRequest(config);

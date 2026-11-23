@@ -72,6 +72,8 @@ const ENGLISH = {
     "{{provider}} rate-limited the request. Wait a moment and try again.",
   "providerErrors.modelNotFound": "{{provider}} doesn't recognize the model “{{model}}”.",
   "providerErrors.modelNotFoundNoModel": "{{provider}} doesn't recognize the selected model.",
+  "providerErrors.modelUnavailable":
+    "{{provider}} can't use “{{model}}” on this account. It may require premium model access.",
   "providerErrors.payloadTooLarge": "This recording is too large for {{provider}}.",
   "providerErrors.requestTooLarge": "This request is too large for {{provider}}.",
   "providerErrors.badRequest": "{{provider}} couldn't process this request.",
@@ -118,7 +120,10 @@ const INVALID_KEY_SIGNAL =
 const QUOTA_SIGNAL =
   /insufficient_quota|credit balance|insufficient (credits|balance|funds)|out of credits|payment required/i;
 const MODEL_SIGNAL =
-  /model_not_found|model[^.\n]{0,80}(not found|does not exist|not available|is not supported)|(unknown|invalid|unsupported) model/i;
+  /model_not_found|model[^.\n]{0,80}(not found|does not exist|not available|is not supported)|(unknown|invalid|unsupported) model|\bunsupported_model\b/i;
+// Zoom Scribe names a model the account cannot use (zoom-scribe-en-pro without
+// premium access) as UNSUPPORTED_MODEL on both Live and Fast.
+const UNSUPPORTED_MODEL_SIGNAL = /\bunsupported_model\b/i;
 const MISSING_ITEM_SIGNAL = /\bitem with id\b[^.\n]{0,80}\bnot found\b/i;
 
 const NETWORK_CODES = new Set([
@@ -187,6 +192,7 @@ function requestIdFrom(headers) {
 
 function codeForStatus(status, text, selfHosted) {
   if (status === 401) return C.AUTH_FAILED;
+  if (status === 400 && UNSUPPORTED_MODEL_SIGNAL.test(text)) return C.MODEL_NOT_FOUND;
   if ((status === 400 || status === 403) && INVALID_KEY_SIGNAL.test(text)) return C.AUTH_FAILED;
   if (status === 402) return C.QUOTA_EXHAUSTED;
   if ([400, 403, 429].includes(status) && QUOTA_SIGNAL.test(text)) return C.QUOTA_EXHAUSTED;
@@ -206,13 +212,19 @@ function codeForStatus(status, text, selfHosted) {
   return C.ERROR;
 }
 
-function buildClassification(code, { provider, model, surface, selfHosted, technicalDetails }) {
+function buildClassification(
+  code,
+  { provider, model, surface, selfHosted, technicalDetails, unsupportedModel = false }
+) {
   const providerName = selfHosted ? SELF_HOSTED_NAME : provider;
   const messageParams = { provider: providerName };
   let messageKey = MESSAGE_KEYS[code];
   if (code === C.MODEL_NOT_FOUND) {
     if (model) messageParams.model = model;
     else messageKey = "providerErrors.modelNotFoundNoModel";
+    if (unsupportedModel && model && !selfHosted) {
+      messageKey = "providerErrors.modelUnavailable";
+    }
   }
   if (code === C.KEY_MISSING) {
     messageKey =
@@ -261,6 +273,7 @@ export function providerHttpError(args) {
       model,
       surface,
       selfHosted,
+      unsupportedModel: status === 400 && UNSUPPORTED_MODEL_SIGNAL.test(text),
       technicalDetails: {
         status,
         ...(requestId ? { requestId } : {}),

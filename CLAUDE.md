@@ -438,7 +438,7 @@ Settings stored in localStorage with these keys:
 - `toneStyleEnabled`, `toneStyles`: whether Tone & Style is on (the setup dialog's Finish, or Settings' Tones & voices switch) and the tone picked per kind of app (JSON, normalized by `normalizeToneStyles`)
 - `emailDraftTarget`: Where email drafts open (`auto`, `gmail`, `gmailSend`, `outlookWork`, `outlookPersonal`, `mailto`); `gmailSend` sends through the Gmail connector's approval card ("Send from chat (Gmail)"); an unknown value reads as `auto`
 
-Secret env vars (12 total: 7 BYOK API keys + 5 enterprise cloud creds — see `SECRET_KEYS` in `environment.js`) are encrypted at rest via Electron `safeStorage` and stored as per-key files under `userData/secure-keys/`. They are loaded into `process.env` at startup by `EnvironmentManager.init()`. Renderer reads them via IPC (`get-*-key`) and writes via debounced IPC (`save-*-key`). On Linux without a keyring, secrets fall back to plaintext.
+Secret env vars (13 total: 8 BYOK API keys + 5 enterprise cloud creds — see `SECRET_KEYS` in `environment.js`) are encrypted at rest via Electron `safeStorage` and stored as per-key files under `userData/secure-keys/`. They are loaded into `process.env` at startup by `EnvironmentManager.init()`. Renderer reads them via IPC (`get-*-key`) and writes via debounced IPC (`save-*-key`). On Linux without a keyring, secrets fall back to plaintext.
 
 Non-secret env vars persisted to `.env` (via `saveAllKeysToEnvFile()`):
 
@@ -843,6 +843,7 @@ Live meeting transcription runs two streams (mic + system-audio tap) and must ke
 - **Text layer**: `meetingMicHoldback.js` decides whether a mic final is risky (held back), a duplicate of recent system text (dropped), or racing an arriving system final (retracted); the `ipcHandlers.js` adapters (`shouldSkipDuplicateMicSegment`, `hasRiskyMicDuplicateProfile`, `removeRacingMicEntriesFor`, `removePendingMicFinalsFor`) apply the results to closure state and emit `meeting-transcription-segment` events (`partial` / `final` / `retract`)
 - **Renderer**: `src/stores/meetingSegmentReducer.ts` is the pure `(state, event, deps) → reduction` transition for those events (timestamp-sorted insert, retract by exact match, per-source partial slots); `meetingRecordingStore.ts` supplies `mintSegmentId` / `decorateFinal` (speaker identifications, provisional speaker, locks — must not write to the store) and applies the reduction. Tests: `test/stores/meetingSegmentReducer.test.js`, `test/stores/meetingRecordingStoreImports.test.js`
 - **Regression pins**: BYOK `session.update` payload and the disconnect-commit callback (`test/helpers/openaiRealtimeStreaming.test.js`, `tinfoilRealtimeStreaming.test.js`), token-endpoint wire bodies (`test/helpers/realtimeTokenProviders.test.js`). Tests named `characterization: …` pin known oddities on purpose — flip them deliberately when changing policy
+- **Streaming clients**: every meeting stream's audio goes through `sendMeetingStreamingAudio` (`meetingStreamingProviders.js`), which anchors the session clock on its first sample, so `timestampMs = sessionStartedAt + offset` also holds for replayed reconnect audio. `onFinalTranscript` carries accumulated text for every client; meetings read the per-turn text from `completedSegments`. Clients whose server needs another rate than the 24 kHz meeting capture resample it themselves (Zoom Scribe Live takes 16 kHz: `pcmResampler.js`, tests in `test/helpers/pcmResampler.test.js`, `zoomScribeMeeting.test.js`)
 - **Fixtures**: `test/helpers/harness/pcmFixtures.js` — deterministic 24 kHz PCM generators (`makeSine`, `makeSeededNoise`, `mix`, `delayBy`, `toInt16Buffer`, `chunkBuffer`, …) used by the gate and echo-detector tests
 
 ### 19. Note Templates and Actions
@@ -887,7 +888,7 @@ All user-facing strings **must** use the i18n system. Never hardcode UI text in 
 
 **Setup**: react-i18next (v15) with i18next (v25). Translation files in `src/locales/{lang}/translation.json`.
 
-**Supported languages**: en, es, fr, de, pt, it, ru, zh-CN, zh-TW
+**Supported languages**: en, ar, de, es, fr, it, ja, pt, ru, zh-CN, zh-TW
 
 **How to use**:
 
@@ -937,7 +938,7 @@ UI icons come from `src/components/icons/` (vendored Nucleo core outline compone
 2. **New Setting**: Update useSettings.ts and SettingsPage.tsx
 3. **New UI Component**: Follow shadcn/ui patterns in src/components/ui
 4. **New Manager**: Create in src/helpers/, initialize in main.js
-5. **New UI Strings**: Add translation keys to all 10 language files (see i18n section above)
+5. **New UI Strings**: Add translation keys to all 11 language files (see i18n section above)
 6. **New Sidecar Binary**: Add download script in `scripts/`, add to `prebuild*` scripts in package.json, add manager in `src/helpers/`, initialize in `main.js`. Spawn the child with `detached: process.platform !== "win32"` so it has its own process group on Unix. Right after spawn call `sidecarPidFile.write(name, child.pid)` and on `close` call `sidecarPidFile.clear(name)`. Add the binary fragment to `EXPECTED_BINARY_FRAGMENTS` in `sidecarReaper.js`. Register a stop function via `sidecarRegistry.register(name, () => manager.stop())` in `registerSidecars()` — that single registration replaces the old `will-quit` line.
 
 ### Testing Checklist
@@ -1103,7 +1104,7 @@ UI icons come from `src/components/icons/` (vendored Nucleo core outline compone
 
 ## Security Considerations
 
-- API keys and enterprise cloud creds (12 secrets total) encrypted at rest via Electron `safeStorage` → OS keychain (Keychain / DPAPI / libsecret), stored as per-key files in `userData/secure-keys/`. Linux without a keyring falls back to plaintext (Electron default). Closed in #629.
+- API keys and enterprise cloud creds (13 secrets total) encrypted at rest via Electron `safeStorage` → OS keychain (Keychain / DPAPI / libsecret), stored as per-key files in `userData/secure-keys/`. Linux without a keyring falls back to plaintext (Electron default). Closed in #629.
 - Context isolation enabled
 - No remote code execution
 - Sanitized file paths
@@ -1113,7 +1114,7 @@ UI icons come from `src/components/icons/` (vendored Nucleo core outline compone
 
 - Streaming transcription support
 - Custom wake word detection
-- ~~Multi-language UI~~ (implemented — 9 languages via react-i18next)
+- ~~Multi-language UI~~ (implemented — 11 languages via react-i18next)
 - Cloud model selection
 - Batch transcription
 - Export formats beyond clipboard

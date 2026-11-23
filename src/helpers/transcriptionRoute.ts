@@ -32,6 +32,7 @@ import {
 import type { ManagedEnterpriseRequestContext } from "../types/enterpriseIdentity.ts";
 import { getRegistryData } from "../models/registryData.js";
 import { retiredReplacement } from "../models/modelLifecycle.js";
+import { ZOOM_SCRIBE_BODY_LIMIT_BYTES, ZOOM_SCRIBE_DEFAULT_MODEL } from "./zoomScribeProtocol.js";
 
 const BYOK_FILE_SIZE_LIMIT = 25 * 1024 * 1024;
 
@@ -39,8 +40,16 @@ const BYOK_FILE_SIZE_LIMIT = 25 * 1024 * 1024;
 // request cap; base64 inflates 4/3, so cap the raw audio lower.
 const GEMINI_FILE_SIZE_LIMIT = 14 * 1024 * 1024;
 
+// Zoom Scribe has no raw-file ceiling of its own: an over-cap recording is
+// re-encoded to m4a in the main process, and only refused if the result is still
+// over the encoded body cap (ZOOM_SCRIBE_BODY_LIMIT_BYTES). This limit only bounds
+// what the renderer and IPC accept as input.
+const ZOOM_SCRIBE_INPUT_LIMIT_BYTES = 500 * 1024 * 1024;
+
 export function byokFileSizeLimit(provider: string): number {
-  return provider === "gemini" ? GEMINI_FILE_SIZE_LIMIT : BYOK_FILE_SIZE_LIMIT;
+  if (provider === "gemini") return GEMINI_FILE_SIZE_LIMIT;
+  if (provider === "zoom") return ZOOM_SCRIBE_INPUT_LIMIT_BYTES;
+  return BYOK_FILE_SIZE_LIMIT;
 }
 
 // BYOK providers that speak OpenAI's own /audio/transcriptions shape and
@@ -103,6 +112,7 @@ export function batchTranscriptionHttpError(
 // realtime too, yet it batches through the proxy. Every other "realtime-only"
 // decision (dictationStreamingRouting, audioManager.shouldUseStreaming, the
 // upload picker and selector) derives from this set.
+// Zoom Scribe is not in this set: it streams (Live) and batches (Fast) on the same key.
 export const STREAMING_ONLY_PROVIDERS = new Set(["deepgram", "assemblyai"]);
 
 export interface TranscriptionRouteSettings {
@@ -161,7 +171,7 @@ export type TranscriptionRoute =
   | { transport: "local" }
   | {
       transport: "proxied";
-      provider: "tinfoil" | "mistral" | "xai" | "corti" | "gemini";
+      provider: "tinfoil" | "mistral" | "xai" | "corti" | "gemini" | "zoom";
       model: string | null;
       language?: string;
       sizeCapBytes: number;
@@ -244,7 +254,8 @@ export function resolveByokModel(provider: string, configuredModel?: string): st
       (provider === "gemini" && trimmed.startsWith("gemini-")) ||
       (provider === "deepgram" && (trimmed.startsWith("nova-") || trimmed.startsWith("flux-"))) ||
       (provider === "assemblyai" &&
-        (trimmed.startsWith("universal-") || trimmed.startsWith("slam-")));
+        (trimmed.startsWith("universal-") || trimmed.startsWith("slam-"))) ||
+      (provider === "zoom" && trimmed.startsWith("zoom-scribe-"));
     if (matchesProvider) return trimmed;
   }
   if (provider === "groq") return "whisper-large-v3-turbo";
@@ -255,6 +266,7 @@ export function resolveByokModel(provider: string, configuredModel?: string): st
   if (provider === "deepgram") return "nova-3";
   if (provider === "assemblyai") return "universal-3-6-pro";
   if (provider === "openrouter") return "mistralai/voxtral-mini-transcribe-3-0";
+  if (provider === "zoom") return ZOOM_SCRIBE_DEFAULT_MODEL;
   return "gpt-transcribe";
 }
 
@@ -404,6 +416,17 @@ export function resolveTranscriptionRoute({
       model,
       language,
       sizeCapBytes: GEMINI_FILE_SIZE_LIMIT,
+    };
+  }
+  if (provider === "zoom") {
+    // Live and Fast share one key. The encoded-body cap and the m4a fallback are
+    // applied in the main process, where the request is built.
+    return {
+      transport: "proxied",
+      provider,
+      model,
+      language,
+      sizeCapBytes: ZOOM_SCRIBE_BODY_LIMIT_BYTES,
     };
   }
   if (provider === "corti") {

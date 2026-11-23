@@ -11,6 +11,7 @@ export const MEETING_STREAMING_PROVIDER_IDS = [
   "deepgram",
   "corti",
   "tinfoil",
+  "zoom",
 ];
 
 export function filterMeetingStreamingProviders(providers) {

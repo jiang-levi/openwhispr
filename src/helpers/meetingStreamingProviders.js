@@ -3,6 +3,7 @@ const AssemblyAiStreaming = require("./assemblyAiStreaming");
 const DeepgramStreaming = require("./deepgramStreaming");
 const CortiStreaming = require("./cortiStreaming");
 const { TinfoilRealtimeStreaming } = require("./tinfoilRealtimeStreaming");
+const { ZoomScribeStreaming } = require("./zoomScribeStreaming");
 
 const STREAMING_CLIENT_BY_PROVIDER = {
   "openai-realtime": OpenAIRealtimeStreaming,
@@ -11,6 +12,7 @@ const STREAMING_CLIENT_BY_PROVIDER = {
   "deepgram-realtime": DeepgramStreaming,
   "corti-realtime": CortiStreaming,
   "tinfoil-realtime": TinfoilRealtimeStreaming,
+  "zoom-realtime": ZoomScribeStreaming,
 };
 
 // Derived from the registry so an allowed provider can never lack a client
@@ -24,7 +26,8 @@ const getMeetingStreamingClient = (provider) => {
 };
 
 // These authenticate with saved credentials whatever the mode says.
-const SAVED_KEY_PROVIDERS = new Set(["corti-realtime", "tinfoil-realtime"]);
+// Zoom Scribe reads its saved key in every mode, as Corti and Tinfoil do.
+const SAVED_KEY_PROVIDERS = new Set(["corti-realtime", "tinfoil-realtime", "zoom-realtime"]);
 
 // A connection that authenticates with a saved key also records the count of key
 // saves it opened under, so a start never reuses one opened before a save.
@@ -47,8 +50,28 @@ const getMeetingConnectionKey = (options = {}, credentialGeneration = null) =>
         : null,
   });
 
+// Every meeting stream's audio goes through here. A session's timestamps count from
+// its first sample (Deepgram's `start`, Zoom's `audio_start_ms`), so the first chunk
+// that reaches a fresh session sets its start to that chunk's capture time. That
+// holds for replayed reconnect audio too: the replay's oldest chunk becomes the
+// new session's origin. Returns the client's sendAudio result, which replay checks.
+const sendMeetingStreamingAudio = (streaming, buffer, capturedAt = null) => {
+  const firstSampleAt = streaming.audioBytesSent === 0 ? capturedAt : null;
+  const sent = streaming.sendAudio(buffer);
+  if (
+    sent &&
+    streaming.isConnected &&
+    firstSampleAt !== null &&
+    streaming.sessionStartedAt != null
+  ) {
+    streaming.sessionStartedAt = firstSampleAt;
+  }
+  return sent;
+};
+
 module.exports = {
   STREAMING_CLIENT_BY_PROVIDER,
+  sendMeetingStreamingAudio,
   ALLOWED_MEETING_PROVIDERS,
   getMeetingStreamingClient,
   getMeetingConnectionKey,

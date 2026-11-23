@@ -19,6 +19,7 @@ const PREFIX_VALIDATED_PROVIDERS = [
   "deepgram",
   "assemblyai",
   "openrouter",
+  "zoom",
 ];
 
 test("every shipping registry model survives resolveByokModel", async () => {

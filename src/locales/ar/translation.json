@@ -291,6 +291,9 @@
         "assemblyai_universal_streaming_english": "نصوص مفرَّغة ثابتة في الوقت الفعلي، الإنجليزية",
         "assemblyai_universal_streaming_multilingual": "نصوص مفرَّغة ثابتة في الوقت الفعلي، متعددة اللغات",
         "assemblyai_universal_3_5_pro": "أعلى دقة في الوقت الفعلي، 18 لغة",
+        "zoom_scribe_multilingual": "نسخ فوري وللملفات بـ 10 لغات، مع الكشف التلقائي عن اللغة",
+        "zoom_scribe_en": "نسخ فوري وللملفات، باللغة الإنجليزية فقط",
+        "zoom_scribe_en_pro": "أعلى دقة للغة الإنجليزية. يتطلب إمكانية الوصول إلى نماذج Zoom Scribe المميزة.",
         "assemblyai_universal_3_6_pro": "أعلى دقة في الوقت الفعلي، 32 لغة",
         "mistral_voxtral_mini_transcribe_3_0": "تفريغ سريع بأكثر من 50 لغة (معاينة)",
         "mistral_voxtral_small_transcribe_3_0": "Voxtral الأكثر دقة، أكثر من 50 لغة (معاينة)",
@@ -6057,6 +6060,9 @@
     "tinfoil": {
       "transportNote": "يستخدم Tinfoil نموذج Voxtral Mini 4B للتفريغ المباشر (البث)، ونموذج Voxtral Small 24B للمعالجة الدفعية.",
       "docsLink": "قراءة الوثائق"
+    },
+    "zoom": {
+      "premiumNote": "يتطلب English Pro إمكانية الوصول إلى نماذج Zoom Scribe المميزة."
     }
   },
   "cleanupPrompt": "التنظيف",
@@ -6764,7 +6770,8 @@
     "details": {
       "provider": "المزوّد",
       "requestId": "معرّف الطلب"
-    }
+    },
+    "modelUnavailable": "لا يمكن لـ {{provider}} استخدام “{{model}}” في هذا الحساب. قد يتطلب ذلك إمكانية الوصول إلى النماذج المميزة."
   },
   "toneStyle": {
     "title": "النبرة والأسلوب",

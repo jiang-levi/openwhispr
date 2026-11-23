@@ -233,6 +233,38 @@ function convertToMp3(inputPath, outputPath, options = {}) {
   );
 }
 
+// AAC in an MP4 container, mono 16 kHz at 32 kbps: about 4 KB per second, so a
+// two-hour recording fits well inside a 50 MB encoded request body.
+function convertToM4a(inputPath, outputPath, options = {}) {
+  const { audioBitrate = "32k", signal } = options;
+
+  debugLogger.debug("Re-encoding audio to AAC m4a with FFmpeg", {
+    input: inputPath,
+    output: outputPath,
+    audioBitrate,
+  });
+
+  return runFFmpegConversion(
+    [
+      "-i",
+      inputPath,
+      "-vn",
+      "-c:a",
+      "aac",
+      "-b:a",
+      audioBitrate,
+      "-ar",
+      "16000",
+      "-ac",
+      "1",
+      "-f",
+      "mp4",
+    ],
+    outputPath,
+    { signal }
+  );
+}
+
 let reencodeSequence = 0;
 
 // Buffer in, buffer out. convertToWav works on paths, but retry paths hold
@@ -548,6 +580,29 @@ function clearCache() {
   cachedFFmpegPath = null;
 }
 
+// Buffer in, buffer out, for the Zoom Scribe transcode fallback.
+async function convertBufferToM4a(audioBuffer, options = {}) {
+  const { getSafeTempDir } = require("./safeTempDir");
+  const tempDir = getSafeTempDir();
+  const stamp = `${Date.now()}-${process.pid}-${++reencodeSequence}`;
+  const inputPath = path.join(tempDir, `ow-reencode-${stamp}.input`);
+  const outputPath = path.join(tempDir, `ow-reencode-${stamp}.m4a`);
+
+  try {
+    fs.writeFileSync(inputPath, audioBuffer);
+    await convertToM4a(inputPath, outputPath, options);
+    return fs.readFileSync(outputPath);
+  } finally {
+    for (const filePath of [inputPath, outputPath]) {
+      try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      } catch {
+        // A stale temp file should not hide the transcription result or error.
+      }
+    }
+  }
+}
+
 module.exports = {
   getFFmpegPath,
   isWavFormat,
@@ -556,6 +611,8 @@ module.exports = {
   convertToWav,
   convertBufferToWav,
   convertToMp3,
+  convertToM4a,
+  convertBufferToM4a,
   splitAudioFile,
   parseFfmpegDuration,
   wavToFloat32Samples,

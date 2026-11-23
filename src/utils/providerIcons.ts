@@ -23,6 +23,9 @@ import openrouterIcon from "@/assets/icons/providers/openrouter.svg";
 import tinfoilIcon from "@/assets/icons/providers/tinfoil.svg";
 import deepgramIcon from "@/assets/icons/providers/deepgram.svg";
 import assemblyaiIcon from "@/assets/icons/providers/assemblyai.svg";
+// The square ZM mark rather than the wordmark, which is too wide to read in a
+// square icon slot. PNG because the mark is raster art.
+import zoomScribeIcon from "@/assets/icons/providers/zoom.png";
 
 export const PROVIDER_ICONS: Record<string, string> = {
   oruk: orukIcon,
@@ -48,6 +51,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   tinfoil: tinfoilIcon,
   deepgram: deepgramIcon,
   assemblyai: assemblyaiIcon,
+  zoom: zoomScribeIcon,
 };
 
 export function getProviderIcon(provider: string): string | undefined {

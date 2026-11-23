@@ -300,6 +300,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
     deepgramApiKey,
     assemblyaiApiKey,
     openrouterApiKey,
+    zoomScribeApiKey,
     customTranscriptionApiKey,
   } = apiKeys;
   const policyState = usePolicySnapshot();
@@ -382,7 +383,8 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
 
   // Mode-aware file size validation
   // Local: no limits at all
-  // BYOK: 25 MB hard max regardless of plan (14 MB for Gemini's inline cap)
+  // BYOK: 25 MB hard max regardless of plan (14 MB for Gemini's inline cap;
+  // Zoom Scribe re-encodes over-cap files in the main process instead)
   // Cloud free: 25 MB max (upgrade to Pro for more)
   // Cloud pro: 500 MB max
   const byokMaxFileSize = byokFileSizeLimit(cloudTranscriptionProvider);
@@ -494,6 +496,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                 deepgramApiKey,
                 assemblyaiApiKey,
                 openrouterApiKey,
+                zoomScribeApiKey,
                 customTranscriptionApiKey,
               })
             );
@@ -544,6 +547,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
     deepgramApiKey,
     assemblyaiApiKey,
     openrouterApiKey,
+    zoomScribeApiKey,
     customTranscriptionApiKey,
     cortiClientId,
     cortiClientSecret,

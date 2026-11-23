@@ -204,3 +204,34 @@ test("enterprise meeting reuse is scoped to workspace, profile and credential ge
     )
   );
 });
+
+test("zoom-realtime resolves to the Zoom Scribe client and is offered for note recording", async () => {
+  const { STREAMING_CLIENT_BY_PROVIDER, ALLOWED_MEETING_PROVIDERS, getMeetingStreamingClient } =
+    await load();
+  const { ZoomScribeStreaming } = await import("../../src/helpers/zoomScribeStreaming.js");
+
+  assert.equal(STREAMING_CLIENT_BY_PROVIDER["zoom-realtime"], ZoomScribeStreaming);
+  assert.equal(getMeetingStreamingClient("zoom-realtime"), ZoomScribeStreaming);
+  assert.equal(ALLOWED_MEETING_PROVIDERS.has("zoom-realtime"), true);
+});
+
+test("the Zoom key is saved in every mode, so a key save always reconnects Zoom meetings", async () => {
+  const { getMeetingConnectionKey } = await load();
+  for (const mode of ["byok", "openwhispr"]) {
+    const options = { provider: "zoom-realtime", model: "zoom-scribe-en", mode };
+    assert.notEqual(
+      getMeetingConnectionKey(options, 1),
+      getMeetingConnectionKey(options, 2),
+      `zoom-realtime (${mode}) must follow credential saves`
+    );
+  }
+});
+
+test("meeting audio clock anchors on the first chunk and replays through the Zoom client", async () => {
+  const { sendMeetingStreamingAudio } = await load();
+  const { ZoomScribeStreaming } = await import("../../src/helpers/zoomScribeStreaming.js");
+  const client = new ZoomScribeStreaming({ createSocket: () => assert.fail("no socket") });
+  // Not connected, so nothing is sent and the clock is not moved.
+  assert.equal(sendMeetingStreamingAudio(client, Buffer.alloc(4), 1000), false);
+  assert.equal(client.audioBytesSent, 0);
+});

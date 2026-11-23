@@ -965,6 +965,9 @@
     "tinfoil": {
       "transportNote": "Tinfoil использует Voxtral Mini 4B для потоковой обработки и Voxtral Small 24B для пакетной.",
       "docsLink": "Открыть документацию"
+    },
+    "zoom": {
+      "premiumNote": "Для English Pro требуется доступ к премиум-моделям Zoom Scribe."
     }
   },
   "hooks": {
@@ -3321,6 +3324,9 @@
         "assemblyai_universal_streaming_english": "Неизменяемые расшифровки в реальном времени, английский",
         "assemblyai_universal_streaming_multilingual": "Неизменяемые расшифровки в реальном времени, многоязычные",
         "assemblyai_universal_3_5_pro": "Максимальная точность в реальном времени, 18 языков",
+        "zoom_scribe_multilingual": "Транскрипция в реальном времени и файлов на 10 языках с автоопределением языка",
+        "zoom_scribe_en": "Транскрипция в реальном времени и файлов, только английский",
+        "zoom_scribe_en_pro": "Максимальная точность для английского. Требуется доступ к премиум-моделям Zoom Scribe.",
         "assemblyai_universal_3_6_pro": "Максимальная точность в реальном времени, 32 языка",
         "mistral_voxtral_mini_transcribe_3_0": "Быстрая транскрипция на 50+ языках (предварительная версия)",
         "mistral_voxtral_small_transcribe_3_0": "Самый точный Voxtral, 50+ языков (предварительная версия)",
@@ -6498,7 +6504,8 @@
     "details": {
       "provider": "Провайдер",
       "requestId": "ID запроса"
-    }
+    },
+    "modelUnavailable": "{{provider}} не может использовать «{{model}}» с этой учётной записью. Может потребоваться доступ к премиум-моделям."
   },
   "toneStyle": {
     "title": "Тон и стиль",

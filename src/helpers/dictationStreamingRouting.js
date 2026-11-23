@@ -217,6 +217,13 @@ export function resolveStreamingProviderName({ settings, context, sttConfig, lan
   ) {
     return settings.cloudTranscriptionProvider;
   }
+  // Zoom Scribe streams on its BYOK key (Live); its batch route is Fast.
+  if (
+    settings.cloudTranscriptionMode === "byok" &&
+    settings.cloudTranscriptionProvider === "zoom"
+  ) {
+    return "zoom-realtime";
+  }
   if (isOpenAiRealtimeSelection(settings)) {
     return "openai-realtime";
   }

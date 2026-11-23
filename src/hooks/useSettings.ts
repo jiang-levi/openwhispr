@@ -104,6 +104,7 @@ export interface ApiKeySettings {
   tinfoilApiKey: string;
   deepgramApiKey: string;
   assemblyaiApiKey: string;
+  zoomScribeApiKey: string;
   customTranscriptionApiKey: string;
   cleanupCustomApiKey: string;
 }
@@ -338,6 +339,7 @@ function useSettingsInternal() {
     tinfoilApiKey: store.tinfoilApiKey,
     deepgramApiKey: store.deepgramApiKey,
     assemblyaiApiKey: store.assemblyaiApiKey,
+    zoomScribeApiKey: store.zoomScribeApiKey,
     dictationKey: store.dictationKey,
     meetingKey: store.meetingKey,
     voiceAgentKey: store.voiceAgentKey,

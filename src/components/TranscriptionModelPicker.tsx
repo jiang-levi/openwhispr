@@ -289,6 +289,7 @@ const CLOUD_PROVIDER_TABS = [
   { id: "deepgram", name: "Deepgram" },
   { id: "assemblyai", name: "AssemblyAI" },
   { id: "openrouter", name: "OpenRouter" },
+  { id: "zoom", name: "Zoom Scribe" },
   { id: "custom", name: "Custom" },
 ];
 
@@ -306,7 +307,8 @@ interface ProviderCredentialField {
     | "tinfoilApiKey"
     | "deepgramApiKey"
     | "assemblyaiApiKey"
-    | "openrouterApiKey";
+    | "openrouterApiKey"
+    | "zoomScribeApiKey";
   input: "secret" | "text" | "select";
   labelKey?: string;
   placeholder?: string;
@@ -374,6 +376,10 @@ const PROVIDER_CREDENTIALS: Record<
   openrouter: {
     consoleUrl: "https://openrouter.ai/keys",
     fields: [{ key: "openrouterApiKey", input: "secret" }],
+  },
+  zoom: {
+    consoleUrl: "https://zoom.ai/",
+    fields: [{ key: "zoomScribeApiKey", input: "secret" }],
   },
 };
 
@@ -510,9 +516,11 @@ export default function TranscriptionModelPicker({
   const deepgramApiKey = useSettingsStore((s) => s.deepgramApiKey);
   const setDeepgramApiKey = useSettingsStore((s) => s.setDeepgramApiKey);
   const assemblyaiApiKey = useSettingsStore((s) => s.assemblyaiApiKey);
+  const zoomScribeApiKey = useSettingsStore((s) => s.zoomScribeApiKey);
   const setAssemblyaiApiKey = useSettingsStore((s) => s.setAssemblyaiApiKey);
   const openrouterApiKey = useSettingsStore((s) => s.openrouterApiKey);
   const setOpenrouterApiKey = useSettingsStore((s) => s.setOpenrouterApiKey);
+  const setZoomScribeApiKey = useSettingsStore((s) => s.setZoomScribeApiKey);
   const customTranscriptionApiKey = useSettingsStore((s) => s.customTranscriptionApiKey);
   const setCustomTranscriptionApiKey = useSettingsStore((s) => s.setCustomTranscriptionApiKey);
   const isSignedIn = useSettingsStore((s) => s.isSignedIn);
@@ -1233,6 +1241,7 @@ export default function TranscriptionModelPicker({
     deepgramApiKey: keyDraft.value("deepgramApiKey", deepgramApiKey),
     assemblyaiApiKey: keyDraft.value("assemblyaiApiKey", assemblyaiApiKey),
     openrouterApiKey: keyDraft.value("openrouterApiKey", openrouterApiKey),
+    zoomScribeApiKey: keyDraft.value("zoomScribeApiKey", zoomScribeApiKey),
   };
   const customKey = keyDraft.value("customTranscriptionApiKey", customTranscriptionApiKey);
   const credentialSetters: Record<ProviderCredentialField["key"], (value: string) => void> = {
@@ -1249,6 +1258,7 @@ export default function TranscriptionModelPicker({
     deepgramApiKey: setDeepgramApiKey,
     assemblyaiApiKey: setAssemblyaiApiKey,
     openrouterApiKey: setOpenrouterApiKey,
+    zoomScribeApiKey: setZoomScribeApiKey,
   };
 
   const endpointHold = useFocusHold();
@@ -1723,6 +1733,12 @@ export default function TranscriptionModelPicker({
                       onModelSelect={handleCloudModelSelect}
                       colorScheme="purple"
                     />
+                    {displayedCloudProvider === "zoom" &&
+                      displayedCloudModel === "zoom-scribe-en-pro" && (
+                        <p className="text-xs text-muted-foreground/70">
+                          {t("transcription.zoom.premiumNote")}
+                        </p>
+                      )}
                     {displayedCloudProvider === "tinfoil" && (
                       <p className="text-xs text-muted-foreground/70">
                         {t("transcription.tinfoil.transportNote")}{" "}

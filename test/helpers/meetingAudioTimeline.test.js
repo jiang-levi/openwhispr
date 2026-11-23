@@ -7,6 +7,7 @@ const { createRequire } = require("node:module");
 const createWatchdog = require("../../src/helpers/meetingSystemAudioWatchdog");
 const createMeetingSystemAudioHandover = require("../../src/helpers/meetingSystemAudioHandover");
 const micGate = require("../../src/helpers/meetingMicGate");
+const { sendMeetingStreamingAudio } = require("../../src/helpers/meetingStreamingProviders");
 
 // Execute the real IPC closures with only their native/network boundaries replaced.
 const ipcPath = path.join(__dirname, "../../src/helpers/ipcHandlers.js");
@@ -80,6 +81,7 @@ function harness({ native = true, local = false } = {}) {
     meetingSystemAudioHeard: false,
     dropMeetingMicDiarizationCapture() {},
     ...micGate,
+    sendMeetingStreamingAudio,
     meetingLocalMode: local,
     meetingLocalBuffers: { mic: [], system: [] },
     meetingSendCounts: { mic: 0, system: 0 },
