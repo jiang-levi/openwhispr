@@ -605,3 +605,28 @@ test("an unsupported Mac leaves a policy-blocked sherpa selection saved", async 
   });
   assert.deepEqual(selected, []);
 });
+
+test("Zoom keeps three model rows and preserves the selected language when the saved model is restored", async (t) => {
+  const selected = [];
+  const panel = await mount(t, {
+    overrides: {
+      selectedCloudProvider: "zoom",
+      selectedCloudModel: "zoom-scribe-en",
+      onCloudModelSelect: (model) => selected.push(model),
+    },
+  });
+  const modelList = () =>
+    panel.find((node) => typeof node.props?.renderModelAccessory === "function")[0];
+  const list = modelList();
+  assert.equal(list.props.models.length, 3);
+  const standard = list.props.models.find((model) => model.value === "zoom-scribe-en");
+  const selector = list.props.renderModelAccessory(standard);
+  assert.equal(selector.props.value, "zoom-scribe-en");
+  selector.props.onValueChange("zoom-scribe-zh");
+  assert.equal(selected.at(-1), "zoom-scribe-zh");
+  await panel.setProps({ selectedCloudModel: "zoom-scribe-zh" });
+  assert.equal(modelList().props.selectedModel, "zoom-scribe-zh");
+  assert.equal(modelList().props.models.length, 3);
+  assert.ok(modelList().props.models.some((model) => model.value === "zoom-scribe-zh"));
+  assert.equal(selected.filter((model) => model === "zoom-scribe-multilingual").length, 0);
+});

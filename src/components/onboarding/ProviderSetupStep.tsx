@@ -1,3 +1,5 @@
+import { ZoomScribeLanguageSelect } from "../ui/ZoomScribeLanguageSelect";
+import { isZoomScribeSingleLanguageModel } from "../../helpers/zoomScribeProtocol.js";
 import { useRegistryVersion } from "../../hooks/useRegistryVersion";
 import {
   useCallback,
@@ -606,6 +608,15 @@ export function ByokProviderStep({
                 <SelectContent className={`max-h-[14.625rem] ${SELECT_PANEL_CLASS}`}>
                   {models
                     .filter((model) => isListedModel(model, model.id === selectedModel))
+                    .filter(
+                      (model) =>
+                        selectedProvider !== "zoom" ||
+                        !isZoomScribeSingleLanguageModel(model.id) ||
+                        model.id ===
+                          (isZoomScribeSingleLanguageModel(selectedModel)
+                            ? selectedModel
+                            : "zoom-scribe-en")
+                    )
                     .map((model) => (
                       <SelectItem
                         key={model.id}
@@ -619,6 +630,18 @@ export function ByokProviderStep({
                 </SelectContent>
               </Select>
             </label>
+
+            {!assistant &&
+              selectedProvider === "zoom" &&
+              isZoomScribeSingleLanguageModel(selectedModel) && (
+                <div className="flex items-center justify-between gap-2">
+                  <FieldLabel>{t("settings.language.transcriptionLabel")}</FieldLabel>
+                  <ZoomScribeLanguageSelect
+                    value={selectedModel}
+                    onValueChange={setSelectedModel}
+                  />
+                </div>
+              )}
 
             {isCortiTranscription ? (
               <div className="grid grid-cols-2 gap-2">

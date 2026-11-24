@@ -18,8 +18,25 @@ test("connect sends the live-asr subprotocol, auth and tracking headers, then se
       assert.equal(seen.headers.authorization, "Bearer secret-token");
       assert.match(seen.headers["x-zm-trackingid"], /^zoom_ai_community_openwhispr_/);
       assert.equal(seen.texts[0].type, "session.update");
-      assert.equal(seen.texts[0].language, "en-US");
+      assert.equal(seen.texts[0].config.language, "en-US");
       assert.equal(seen.texts[0].config.model, "zoom-scribe-en");
+      await client.disconnect({ commit: false });
+    }
+  );
+});
+
+test("a selected Chinese Scribe model survives normalization and overrides the app language", async () => {
+  const { ZoomScribeStreaming } = await load();
+  await withLiveServer(
+    (ws, message) => {
+      if (message.type === "session.update") ws.send(JSON.stringify({ type: "session.updated" }));
+    },
+    async ({ url, seen }) => {
+      const client = new ZoomScribeStreaming({ createSocket: createSocketFor(url) });
+      await client.connect({ apiKey: "k", model: "zoom-scribe-zh", language: "en" });
+      assert.equal(seen.texts[0].config.model, "zoom-scribe-zh");
+      assert.equal(seen.texts[0].config.language, "zh-CN");
+      assert.equal(seen.texts[0].config.language_detection, undefined);
       await client.disconnect({ commit: false });
     }
   );

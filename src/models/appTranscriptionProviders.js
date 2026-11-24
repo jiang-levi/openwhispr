@@ -1,7 +1,37 @@
+import { ZOOM_SCRIBE_SINGLE_LANGUAGE_MODELS } from "../helpers/zoomScribeProtocol.js";
+
 // Speech-to-text providers the app ships before a model registry publication lists them.
 // The app keeps only the providers its bundled catalog has, so these join that catalog
 // here. Once the catalog is synced from a publication that lists one, remove it below.
 const APP_TRANSCRIPTION_PROVIDERS = [
+  {
+    id: "zoom",
+    name: "Zoom Scribe",
+    baseUrl: "https://api.zoom.us/v2/aiservices/scribe",
+    models: [
+      {
+        id: "zoom-scribe-multilingual",
+        name: "Zoom Scribe Multilingual",
+        description: "Realtime and file transcription, 10 languages with auto-detect",
+        descriptionKey: "models.descriptions.transcription.zoom_scribe_multilingual",
+        streaming: true,
+      },
+      ...Object.keys(ZOOM_SCRIBE_SINGLE_LANGUAGE_MODELS).map((id) => ({
+        id,
+        name: "Zoom Scribe",
+        description: "Single-language realtime and file transcription",
+        descriptionKey: "models.descriptions.transcription.zoom_scribe_en",
+        streaming: true,
+      })),
+      {
+        id: "zoom-scribe-en-pro",
+        name: "Zoom Scribe English Pro",
+        description: "Highest accuracy English, requires Zoom Scribe premium model access",
+        descriptionKey: "models.descriptions.transcription.zoom_scribe_en_pro",
+        streaming: true,
+      },
+    ],
+  },
   {
     id: "openrouter",
     name: "OpenRouter",

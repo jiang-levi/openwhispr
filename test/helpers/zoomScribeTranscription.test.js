@@ -43,6 +43,25 @@ test("Fast posts the recording as a WebM data URL when it fits the cap", async (
   });
 });
 
+test("Fast retains the selected language-specific model instead of falling back to Multilingual", async () => {
+  const { transcribeWithZoomScribe } = await load();
+  const { proxyFetch, calls } = fakeFetch(
+    () => new Response(JSON.stringify({ result: { text_display: "你好" } }), { status: 200 })
+  );
+  const result = await transcribeWithZoomScribe({
+    apiKey: "k",
+    audioBuffer: Buffer.from("audio"),
+    mimeType: "audio/webm",
+    model: "zoom-scribe-zh",
+    language: "en",
+    proxyFetch,
+  });
+  assert.equal(result.text, "你好");
+  assert.equal(calls[0].body.config.model, "zoom-scribe-zh");
+  assert.equal(calls[0].body.config.language, "zh-CN");
+  assert.equal(calls[0].body.config.language_detection, undefined);
+});
+
 test("an over-cap encoded body is re-encoded once to m4a and then sent", async () => {
   const { transcribeWithZoomScribe } = await load();
   const { proxyFetch, calls } = fakeFetch(

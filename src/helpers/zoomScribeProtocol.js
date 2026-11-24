@@ -22,16 +22,10 @@ export const ZOOM_SCRIBE_DOCUMENTED_MIME_TYPES = Object.freeze(
 );
 
 export const ZOOM_SCRIBE_DEFAULT_MODEL = "zoom-scribe-multilingual";
-export const ZOOM_SCRIBE_MODELS = Object.freeze([
-  "zoom-scribe-multilingual",
-  "zoom-scribe-en",
-  "zoom-scribe-en-pro",
-]);
-
 // Models that only transcribe English. Anything else is coerced to en-US.
 const ENGLISH_ONLY_MODELS = new Set(["zoom-scribe-en", "zoom-scribe-en-pro"]);
 
-// Base language code -> Zoom locale. Only zoom-scribe-multilingual accepts these.
+// Base language code -> Zoom locale for the multilingual model.
 export const ZOOM_SCRIBE_LOCALES = Object.freeze({
   en: "en-US",
   ar: "ar-SA",
@@ -44,6 +38,24 @@ export const ZOOM_SCRIBE_LOCALES = Object.freeze({
   pt: "pt-BR",
   es: "es-ES",
 });
+
+// Korean is available through Multilingual, not a standalone Scribe model.
+export const ZOOM_SCRIBE_SINGLE_LANGUAGE_MODELS = Object.freeze(
+  Object.fromEntries(
+    Object.entries(ZOOM_SCRIBE_LOCALES)
+      .filter(([language]) => language !== "ko")
+      .map(([language, locale]) => [`zoom-scribe-${language}`, locale])
+  )
+);
+export const ZOOM_SCRIBE_MODELS = Object.freeze([
+  ZOOM_SCRIBE_DEFAULT_MODEL,
+  ...Object.keys(ZOOM_SCRIBE_SINGLE_LANGUAGE_MODELS),
+  "zoom-scribe-en-pro",
+]);
+
+export function isZoomScribeSingleLanguageModel(model) {
+  return Object.hasOwn(ZOOM_SCRIBE_SINGLE_LANGUAGE_MODELS, model);
+}
 
 export const ZOOM_SCRIBE_VOCABULARY_LIMIT = 100;
 export const ZOOM_SCRIBE_VOCABULARY_TERM_CHARS = 50;
@@ -73,6 +85,13 @@ export function resolveZoomScribeLanguage({ model, language }) {
   if (isZoomEnglishOnlyModel(model)) {
     if (requestedAuto || base === "en") return { language: "en-US", adjusted: null };
     return { language: "en-US", adjusted: "english-only-model" };
+  }
+  if (isZoomScribeSingleLanguageModel(model)) {
+    const locale = ZOOM_SCRIBE_SINGLE_LANGUAGE_MODELS[model];
+    return {
+      language: locale,
+      adjusted: requestedAuto || base === locale.split("-")[0] ? null : "single-language-model",
+    };
   }
   if (requestedAuto) return { detect: true, adjusted: null };
   const locale = ZOOM_SCRIBE_LOCALES[base];
@@ -113,11 +132,10 @@ export function buildLiveSessionUpdate({ model, language, keyterms }) {
     model,
     interim_results: true,
     ...(phrases.length > 0 ? { vocabulary: { phrases } } : {}),
-    ...(resolved.detect ? { language_detection: { mode: "continuous" } } : {}),
+    ...languageFields(resolved),
   };
   return {
     type: "session.update",
-    ...(resolved.detect ? {} : { language: resolved.language }),
     audio: { format: "pcm16" },
     config,
     turn_detection: { silence_duration_ms: ZOOM_SCRIBE_SILENCE_MS },

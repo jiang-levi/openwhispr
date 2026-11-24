@@ -53,7 +53,8 @@ test("the Live session.update pins a locale or continuous detection, never both"
     keyterms: ["OpenWhispr"],
   });
   assert.equal(pinned.type, "session.update");
-  assert.equal(pinned.language, "de-DE");
+  assert.equal(pinned.language, undefined);
+  assert.equal(pinned.config.language, "de-DE");
   assert.deepEqual(pinned.audio, { format: "pcm16" });
   assert.equal(pinned.config.model, "zoom-scribe-multilingual");
   assert.equal(pinned.config.interim_results, true);

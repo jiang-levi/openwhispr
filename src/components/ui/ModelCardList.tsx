@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Globe, Download, Trash2, X, ExternalLink } from "../icons";
 import { useTranslation } from "react-i18next";
 import { Button } from "./button";
@@ -59,6 +60,7 @@ interface ModelCardProps {
   // Long-form descriptions (e.g. OpenRouter) fill the row and ellipsize
   // instead of sitting flush-right like short metadata.
   truncateDescription?: boolean;
+  accessory?: ReactNode;
   // Local model actions (optional - when provided, enables local model UI)
   onDownload?: (modelId: string) => void;
   onDelete?: (modelId: string) => void;
@@ -71,6 +73,7 @@ export function ModelCard({
   onSelect,
   colorScheme = "purple",
   truncateDescription = false,
+  accessory,
   onDownload,
   onDelete,
   onCancelDownload,
@@ -197,6 +200,7 @@ export function ModelCard({
         )}
 
         <div className="ms-auto flex items-center gap-1.5 shrink-0">
+          {accessory}
           {isSelected && !isBlocked && (
             <span className="text-xs font-medium text-primary px-2 py-0.5 bg-primary/10 rounded-sm">
               {t("common.active")}
@@ -261,6 +265,7 @@ interface ModelCardListProps {
   colorScheme?: ColorScheme;
   className?: string;
   truncateDescription?: boolean;
+  renderModelAccessory?: (model: ModelCardOption) => ReactNode;
   // Local model actions (optional - when provided, enables local model UI)
   onDownload?: (modelId: string) => void;
   onDelete?: (modelId: string) => void;
@@ -274,6 +279,7 @@ export default function ModelCardList({
   colorScheme = "purple",
   className = "",
   truncateDescription = false,
+  renderModelAccessory,
   onDownload,
   onDelete,
   onCancelDownload,
@@ -297,6 +303,7 @@ export default function ModelCardList({
           onSelect={onModelSelect}
           colorScheme={colorScheme}
           truncateDescription={truncateDescription}
+          accessory={renderModelAccessory?.(model)}
           onDownload={onDownload}
           onDelete={onDelete}
           onCancelDownload={onCancelDownload}

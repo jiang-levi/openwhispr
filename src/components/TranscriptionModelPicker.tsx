@@ -10,6 +10,7 @@ import { ProviderIcon } from "./ui/ProviderIcon";
 import { LocalModelPolicyNotice } from "./ui/LocalModelPolicyNotice";
 import { ProviderTabs } from "./ui/ProviderTabs";
 import ModelCardList from "./ui/ModelCardList";
+import { ZoomScribeLanguageSelect } from "./ui/ZoomScribeLanguageSelect";
 import { DownloadProgressBar } from "./ui/DownloadProgressBar";
 import { ConfirmDialog } from "./ui/dialog";
 import { useDialogs } from "../hooks/useDialogs";
@@ -65,6 +66,7 @@ import {
 import { getCachedPlatform } from "../utils/platform";
 import { pickWhisperGpuBackend } from "../utils/whisperGpuPack";
 import logger from "../utils/logger";
+import { isZoomScribeSingleLanguageModel } from "../helpers/zoomScribeProtocol.js";
 import type { ParakeetCheckResult } from "../types/electron";
 
 interface LocalModel {
@@ -1365,25 +1367,35 @@ export default function TranscriptionModelPicker({
   const cloudModelOptions = useMemo(() => {
     if (!currentCloudProvider) return [];
     const providerIcon = getRemoteProviderIcon(displayedCloudProvider);
-    return currentCloudProvider.models.map((m) => {
-      // OpenRouter brokers other vendors' models, so the id's prefix
-      // ("openai/…", "google/…") names the model better than OpenRouter's own
-      // mark. Vendors we have no icon for keep it, rather than showing none.
-      const slash = displayedCloudProvider === "openrouter" ? m.id.indexOf("/") : -1;
-      const vendorIcon = slash > 0 ? getRemoteProviderIcon(m.id.slice(0, slash)) : null;
-      const { icon, invertInDark } = vendorIcon?.icon ? vendorIcon : providerIcon;
-      return {
-        value: m.id,
-        label: m.name,
-        description: m.descriptionKey
-          ? t(m.descriptionKey, { defaultValue: m.description })
-          : m.description,
-        icon,
-        invertInDark,
-        legacy: m.legacy,
-      };
-    });
-  }, [currentCloudProvider, displayedCloudProvider, t]);
+    const standardZoomModel = isZoomScribeSingleLanguageModel(displayedCloudModel)
+      ? displayedCloudModel
+      : "zoom-scribe-en";
+    return currentCloudProvider.models
+      .filter(
+        (model) =>
+          displayedCloudProvider !== "zoom" ||
+          !isZoomScribeSingleLanguageModel(model.id) ||
+          model.id === standardZoomModel
+      )
+      .map((m) => {
+        // OpenRouter brokers other vendors' models, so the id's prefix
+        // ("openai/…", "google/…") names the model better than OpenRouter's own
+        // mark. Vendors we have no icon for keep it, rather than showing none.
+        const slash = displayedCloudProvider === "openrouter" ? m.id.indexOf("/") : -1;
+        const vendorIcon = slash > 0 ? getRemoteProviderIcon(m.id.slice(0, slash)) : null;
+        const { icon, invertInDark } = vendorIcon?.icon ? vendorIcon : providerIcon;
+        return {
+          value: m.id,
+          label: m.name,
+          description: m.descriptionKey
+            ? t(m.descriptionKey, { defaultValue: m.description })
+            : m.description,
+          icon,
+          invertInDark,
+          legacy: m.legacy,
+        };
+      });
+  }, [currentCloudProvider, displayedCloudProvider, displayedCloudModel, t]);
 
   const progressDisplay = useMemo(() => {
     if (!effectiveLocal) return null;
@@ -1732,6 +1744,17 @@ export default function TranscriptionModelPicker({
                       }
                       onModelSelect={handleCloudModelSelect}
                       colorScheme="purple"
+                      truncateDescription={displayedCloudProvider === "zoom"}
+                      renderModelAccessory={(model) =>
+                        displayedCloudProvider === "zoom" &&
+                        isZoomScribeSingleLanguageModel(model.value) ? (
+                          <ZoomScribeLanguageSelect
+                            value={model.value}
+                            onValueChange={handleCloudModelSelect}
+                            disabled={model.policyBlocked || model.legacy}
+                          />
+                        ) : null
+                      }
                     />
                     {displayedCloudProvider === "zoom" &&
                       displayedCloudModel === "zoom-scribe-en-pro" && (

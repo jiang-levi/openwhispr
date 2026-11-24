@@ -54,10 +54,8 @@ test("the Note Recording picker lists Zoom Scribe's streaming models", async () 
     (provider) => provider.id === "zoom"
   );
   assert.ok(zoom, "zoom must be offered for note recording");
-  assert.deepEqual(
-    zoom.models.map((model) => model.id),
-    ["zoom-scribe-multilingual", "zoom-scribe-en", "zoom-scribe-en-pro"]
-  );
+  assert.ok(zoom.models.some((model) => model.id === "zoom-scribe-zh"));
+  assert.ok(zoom.models.every((model) => model.streaming));
 });
 
 test("a BYOK Zoom Scribe meeting resolves to the zoom-realtime client with its model and language", async () => {
