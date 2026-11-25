@@ -3218,7 +3218,7 @@
         "assemblyai_universal_streaming_multilingual": "Transcrições em tempo real imutáveis, multilíngues",
         "assemblyai_universal_3_5_pro": "Máxima precisão em tempo real, 18 idiomas",
         "zoom_scribe_multilingual": "Transcrição em tempo real e de arquivos em 10 idiomas, com detecção automática",
-        "zoom_scribe_en": "Transcrição em tempo real e de arquivos em um idioma selecionado",
+        "zoom_scribe_single_language": "Transcrição em tempo real e de arquivos em um idioma selecionado",
         "zoom_scribe_en_pro": "Máxima precisão em inglês. Requer acesso aos modelos premium do Zoom Scribe.",
         "assemblyai_universal_3_6_pro": "Máxima precisão em tempo real, 32 idiomas",
         "mistral_voxtral_mini_transcribe_3_0": "Transcrição rápida em mais de 50 idiomas (prévia)",

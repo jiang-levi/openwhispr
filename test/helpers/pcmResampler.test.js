@@ -140,3 +140,18 @@ test("invalid rates are rejected", async () => {
   assert.throws(() => new PcmResampler({ inputRate: 24000, outputRate: NaN }), RangeError);
   assert.throws(() => new PcmResampler({ inputRate: 24000, outputRate: 16000, halfTaps: 0 }));
 });
+
+test("odd PCM byte boundaries preserve samples at 44.1 kHz and reuse rational phases", async () => {
+  const { PcmResampler } = await import("../../src/helpers/pcmResampler.js");
+  const pcm = Buffer.alloc(44100 * 2);
+  for (let i = 0; i < 44100; i++) pcm.writeInt16LE(Math.round(Math.sin(i * 0.1) * 10000), i * 2);
+  const whole = new PcmResampler({ inputRate: 44100, outputRate: 16000 });
+  const first = whole.process(pcm);
+  assert.equal(whole.kernels.size, 160);
+  const expected = Buffer.concat([first, whole.flush()]);
+  const split = new PcmResampler({ inputRate: 44100, outputRate: 16000 });
+  const output = [];
+  for (let i = 0; i < pcm.length; i += 701) output.push(split.process(pcm.subarray(i, i + 701)));
+  output.push(split.flush());
+  assert.deepEqual(Buffer.concat(output), expected);
+});

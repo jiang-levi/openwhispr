@@ -3331,7 +3331,7 @@
         "assemblyai_universal_streaming_multilingual": "Immutable realtime transcripts, multilingual",
         "assemblyai_universal_3_5_pro": "Highest accuracy realtime, 18 languages",
         "zoom_scribe_multilingual": "Realtime and file transcription in 10 languages, with auto-detect",
-        "zoom_scribe_en": "Single-language realtime and file transcription",
+        "zoom_scribe_single_language": "Single-language realtime and file transcription",
         "zoom_scribe_en_pro": "Highest accuracy for English. Requires Zoom Scribe premium model access.",
         "assemblyai_universal_3_6_pro": "Highest accuracy realtime, 32 languages",
         "mistral_voxtral_mini_transcribe_3_0": "Fast transcription in 50+ languages (preview)",

@@ -105,11 +105,11 @@ test("delta replaces the partial, completed accumulates, and stop returns the fu
         Buffer.from(JSON.stringify({ type: "transcription.delta", delta: "second" }))
       );
 
-      assert.deepEqual(partials, ["hello", "hello there", "second"]);
+      assert.deepEqual(partials, ["hello", "hello there", "", "second"]);
       assert.deepEqual(finals, ["hello there."]);
 
       const result = await client.disconnect({ commit: true });
-      assert.equal(result.text, "hello there. tail words");
+      assert.equal(result.text, "hello there. [Speaker 1] tail words");
       assert.equal(client.isConnected, false);
     }
   );
@@ -245,6 +245,115 @@ test("a close after audio was sent is still reported as a lost connection", asyn
       await new Promise((resolve) => setTimeout(resolve, 120));
       assert.equal(errors.length, 1);
       assert.match(errors[0].message, /connection lost/);
+    }
+  );
+});
+
+test("empty completion clears stale partial and Chinese turns join without added spaces", async () => {
+  const { ZoomScribeStreaming } = await load();
+  const client = new ZoomScribeStreaming();
+  client.model = "zoom-scribe-zh";
+  const partials = [];
+  client.onPartialTranscript = (text) => partials.push(text);
+  const emit = (value) => client.handleMessage(Buffer.from(JSON.stringify(value)));
+  emit({ type: "transcription.delta", delta: "旧 的 预 览" });
+  emit({ type: "transcription.completed", transcript: "" });
+  assert.equal(client.partialText, "");
+  assert.deepEqual(partials, ["旧的预览", ""]);
+  emit({ type: "transcription.completed", transcript: "你 好" });
+  emit({ type: "transcription.completed", transcript: "世 界" });
+  assert.equal(client.getFullTranscript(), "你好世界");
+});
+
+test("reconnect waits for updated, fatal handshake rejects immediately, fatal+close reports once", async () => {
+  const { EventEmitter } = require("node:events");
+  const { ZoomScribeStreaming } = await load();
+  class Socket extends EventEmitter {
+    readyState = 1;
+    sent = [];
+    send(data) {
+      this.sent.push(data);
+    }
+    close() {
+      this.readyState = 3;
+      this.emit("close", 1006);
+    }
+  }
+  const sockets = [];
+  const client = new ZoomScribeStreaming({
+    createSocket: () => {
+      const socket = new Socket();
+      sockets.push(socket);
+      return socket;
+    },
+  });
+  const emit = (socket, value) => socket.emit("message", Buffer.from(JSON.stringify(value)));
+  const first = client.connect({ apiKey: "k", sampleRate: 24000 });
+  emit(sockets[0], { type: "session.updated" });
+  await first;
+  sockets[0].close();
+  assert.equal(client.sessionReady, false);
+  const second = client.connect({ apiKey: "k", sampleRate: 24000 });
+  client.sendAudio(Buffer.alloc(24000 * 2 * 6));
+  assert.equal(client.pendingBytes, 24000 * 2 * 5);
+  assert.equal(sockets[1].sent.length, 0);
+  emit(sockets[1], { type: "error", error: { fatal: true, code: "INVALID_CONFIG" } });
+  await assert.rejects(second, (error) => error.code === "PROVIDER_ERROR");
+  const third = client.connect({ apiKey: "k" });
+  emit(sockets[2], { type: "session.updated" });
+  await third;
+  client.sendAudio(Buffer.alloc(320));
+  let errors = 0;
+  client.onError = () => errors++;
+  emit(sockets[2], { type: "error", error: { fatal: true, code: "SERVER_ERROR" } });
+  sockets[2].close();
+  assert.equal(errors, 1);
+  assert.equal(client.isConnected, false);
+});
+
+test("socket construction failure and cancellation settle the handshake without stale timers", async () => {
+  const { ZoomScribeStreaming } = await load();
+  const failed = new ZoomScribeStreaming({
+    createSocket: () => {
+      throw new Error("socket creation failed");
+    },
+  });
+  await assert.rejects(failed.connect({ apiKey: "k" }), /socket creation failed/);
+  assert.equal(failed.pendingConnect, null);
+  const { EventEmitter } = require("node:events");
+  const socket = new EventEmitter();
+  socket.close = () => {};
+  const client = new ZoomScribeStreaming({ createSocket: () => socket });
+  const connecting = client.connect({ apiKey: "k" });
+  client.cleanup();
+  await assert.rejects(connecting, (error) => error.name === "AbortError");
+  assert.equal(client.pendingConnect, null);
+});
+
+test("an unsolicited session.closed triggers recovery and simultaneous disconnects share a close", async () => {
+  const { ZoomScribeStreaming } = await load();
+  await withLiveServer(
+    (ws, message) => {
+      if (message.type === "session.update") ws.send(JSON.stringify({ type: "session.updated" }));
+      if (message.type === "session.close") ws.send(JSON.stringify({ type: "session.closed" }));
+    },
+    async ({ url, seen }) => {
+      const client = new ZoomScribeStreaming({ createSocket: createSocketFor(url) });
+      try {
+        await client.connect({ apiKey: "k" });
+        client.sendAudio(Buffer.alloc(320));
+        let losses = 0;
+        client.onConnectionLost = () => losses++;
+        client.handleMessage(Buffer.from(JSON.stringify({ type: "session.closed" })));
+        assert.equal(losses, 1);
+        assert.equal(client.isConnected, false);
+        assert.equal(client.sessionReady, false);
+        await client.connect({ apiKey: "k" });
+        await Promise.all([client.disconnect(), client.disconnect()]);
+        assert.equal(seen.texts.filter((message) => message.type === "session.close").length, 1);
+      } finally {
+        client.cleanup();
+      }
     }
   );
 });

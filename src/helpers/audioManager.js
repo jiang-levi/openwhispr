@@ -549,11 +549,12 @@ const STREAMING_PROVIDERS = {
     onSessionEnd: (cb) => window.electronAPI.onCortiSessionEnd(cb),
   },
   "tinfoil-realtime": makeDictationRealtimeProvider("tinfoil-realtime"),
-  // Zoom's final text is the accumulated transcript returned by stop(), which
-  // runs session.close -> session.closed (5 s cap) inside the main process.
+  // After the worklet flush, finalize starts session.close -> session.closed
+  // (5 s cap) immediately; stop then reads the already drained transcript.
   "zoom-realtime": {
     ...makeDictationRealtimeProvider("zoom-realtime"),
-    finalCeilingMs: 3000,
+    finalizeAcknowledged: true,
+    finalize: () => window.electronAPI.dictationRealtimeFinalize(),
     preferStopTranscript: true,
   },
 };

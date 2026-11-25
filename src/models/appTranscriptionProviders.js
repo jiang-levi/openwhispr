@@ -20,7 +20,7 @@ const APP_TRANSCRIPTION_PROVIDERS = [
         id,
         name: "Zoom Scribe",
         description: "Single-language realtime and file transcription",
-        descriptionKey: "models.descriptions.transcription.zoom_scribe_en",
+        descriptionKey: "models.descriptions.transcription.zoom_scribe_single_language",
         streaming: true,
       })),
       {

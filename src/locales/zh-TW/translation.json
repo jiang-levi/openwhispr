@@ -3233,7 +3233,7 @@
         "assemblyai_universal_streaming_multilingual": "不會變動的即時轉錄（多語言）",
         "assemblyai_universal_3_5_pro": "最高精度即時轉錄，支援 18 種語言",
         "zoom_scribe_multilingual": "支援 10 種語言的即時與檔案轉寫，可自動偵測語言",
-        "zoom_scribe_en": "指定語種的即時和檔案轉寫",
+        "zoom_scribe_single_language": "指定語種的即時和檔案轉寫",
         "zoom_scribe_en_pro": "英文最高精度，需要 Zoom Scribe 進階模型權限。",
         "assemblyai_universal_3_6_pro": "最高精度即時轉錄，支援 32 種語言",
         "mistral_voxtral_mini_transcribe_3_0": "支援 50 多種語言的快速轉錄（預覽版）",

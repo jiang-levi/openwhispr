@@ -84,7 +84,7 @@ test("an over-cap encoded body is re-encoded once to m4a and then sent", async (
   assert.equal(transcodes, 1);
   assert.equal(result.mimeType, "audio/mp4");
   assert.match(calls[0].body.file, /^data:audio\/mp4;base64,/);
-  assert.equal(calls[0].body.config.language, "fr-FR");
+  assert.deepEqual(calls[0].body.config.language_detection, { mode: "continuous" });
 });
 
 test("an over-cap file that is still too large after m4a raises PAYLOAD_TOO_LARGE", async () => {
@@ -294,4 +294,129 @@ test("unknown content with no transcoder is a bad request before any call", asyn
     (error) => error.code === "PROVIDER_BAD_REQUEST"
   );
   assert.equal(calls.length, 0);
+});
+
+for (const status of [413, 415]) {
+  test(`Fast compresses once after actual HTTP ${status}, retaining the cap and tracking IDs`, async () => {
+    const { transcribeWithZoomScribe } = await load();
+    let count = 0,
+      transcodes = 0;
+    const ids = [];
+    const options = {
+      apiKey: "k",
+      model: "zoom-scribe-zh",
+      audioBuffer: Buffer.alloc(12),
+      mimeType: "audio/webm",
+      transcodeToM4a: async () => {
+        transcodes++;
+        return Buffer.alloc(8);
+      },
+      proxyFetch: async (_url, init) => {
+        ids.push(init.headers["x-zm-trackingid"]);
+        return ++count === 1
+          ? new Response("rejected", { status })
+          : new Response(
+              JSON.stringify({
+                result: { segments: [{ text: "你 好" }, { text: "世 界 ， hello world" }] },
+              })
+            );
+      },
+    };
+    assert.equal((await transcribeWithZoomScribe(options)).text, "你好世界， hello world");
+    assert.equal(transcodes, 1);
+    assert.equal(count, 2);
+    assert.match(ids[0], /^zoom_ai_community_openwhispr_/);
+    assert.notEqual(ids[0], ids[1]);
+    count = 0;
+    transcodes = 0;
+    await assert.rejects(
+      transcribeWithZoomScribe({
+        ...options,
+        proxyFetch: async () => {
+          count++;
+          return new Response("rejected", { status });
+        },
+      }),
+      (error) => error.status === status
+    );
+    assert.equal(count, 2);
+    assert.equal(transcodes, 1);
+  });
+}
+
+test("Fast does not retry server rejection after a preflight conversion", async () => {
+  const { transcribeWithZoomScribe } = await load();
+  let requests = 0,
+    transcodes = 0;
+  await assert.rejects(
+    transcribeWithZoomScribe({
+      apiKey: "k",
+      audioBuffer: Buffer.alloc(12),
+      mimeType: "audio/ogg",
+      transcodeToM4a: async () => {
+        transcodes++;
+        return Buffer.alloc(8);
+      },
+      proxyFetch: async () => {
+        requests++;
+        return new Response("rejected", { status: 415 });
+      },
+    })
+  );
+  assert.equal(requests, 1);
+  assert.equal(transcodes, 1);
+});
+
+test("Fast localizes invalid success JSON and deadline while preserving caller cancellation", async () => {
+  const { transcribeWithZoomScribe } = await load();
+  const options = { apiKey: "k", audioBuffer: Buffer.alloc(12), mimeType: "audio/webm" };
+  await assert.rejects(
+    transcribeWithZoomScribe({
+      ...options,
+      proxyFetch: async () => new Response("<html>bad gateway</html>"),
+    }),
+    (error) => error.messageKey === "providerErrors.unknown" && !error.message.includes("html")
+  );
+  const waitForAbort = (_url, { signal }) =>
+    new Promise((_resolve, reject) =>
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true })
+    );
+  // Keep the event loop live while AbortSignal.timeout's unref'ed timer expires.
+  const keepAlive = setInterval(() => {}, 1000);
+  try {
+    await assert.rejects(
+      transcribeWithZoomScribe({ ...options, timeoutMs: 10, proxyFetch: waitForAbort }),
+      (error) => error.code === "PROVIDER_TIMEOUT"
+    );
+    const controller = new AbortController();
+    const pending = transcribeWithZoomScribe({
+      ...options,
+      signal: controller.signal,
+      proxyFetch: waitForAbort,
+    });
+    controller.abort();
+    await assert.rejects(pending, (error) => error.name === "AbortError");
+  } finally {
+    clearInterval(keepAlive);
+  }
+});
+
+test("Fast rechecks the encoded-body cap after a server-triggered compression", async () => {
+  const { transcribeWithZoomScribe } = await load();
+  let requests = 0;
+  await assert.rejects(
+    transcribeWithZoomScribe({
+      apiKey: "k",
+      audioBuffer: Buffer.alloc(12),
+      mimeType: "audio/webm",
+      limitBytes: 1024,
+      proxyFetch: async () => {
+        requests++;
+        return new Response("rejected", { status: 413 });
+      },
+      transcodeToM4a: async () => Buffer.alloc(1024),
+    }),
+    (error) => error.code === "PROVIDER_PAYLOAD_TOO_LARGE"
+  );
+  assert.equal(requests, 1);
 });

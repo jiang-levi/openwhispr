@@ -4,6 +4,7 @@ import {
   ZOOM_SCRIBE_BODY_LIMIT_BYTES,
   ZOOM_SCRIBE_DOCUMENTED_MIME_TYPES,
   ZOOM_SCRIBE_FAST_URL,
+  ZOOM_SCRIBE_TRACKING_PREFIX,
   buildFastRequestBody,
   encodedBodyBytes,
   normalizeZoomScribeModel,
@@ -12,7 +13,11 @@ import {
 } from "./zoomScribeProtocol.js";
 import { PROVIDER_ERROR_CODES, providerError, providerHttpError } from "./providerHttpErrors.js";
 import { normalizeAudioMime, sniffAudioMime } from "./audioContentSniff.js";
+import { randomUUID } from "node:crypto";
 import debugLogger from "./debugLogger.js";
+
+// Application deadline for each Fast attempt, including response body parsing.
+export const ZOOM_SCRIBE_FAST_TIMEOUT_MS = 5 * 60 * 1000;
 
 export const ZOOM_SCRIBE_PROVIDER_NAME = "Zoom Scribe";
 
@@ -38,31 +43,60 @@ export function buildZoomScribeFastBody({ audioBuffer, mimeType, model, language
   return { body, bytes: encodedBodyBytes(body) };
 }
 
-async function postFast({ apiKey, body, model, proxyFetch }) {
-  const response = await proxyFetch(ZOOM_SCRIBE_FAST_URL, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    const errorText = await response.text();
-    debugLogger.warn("Zoom Scribe transcription failed", {
-      status: response.status,
-      model,
+async function postFast({ apiKey, body, model, proxyFetch, signal, timeoutMs }) {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+  try {
+    requestSignal.throwIfAborted();
+    const response = await proxyFetch(ZOOM_SCRIBE_FAST_URL, {
+      method: "POST",
+      signal: requestSignal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "x-zm-trackingid": `${ZOOM_SCRIBE_TRACKING_PREFIX}${randomUUID()}`,
+      },
+      body: JSON.stringify(body),
     });
-    throw providerHttpError({
-      provider: ZOOM_SCRIBE_PROVIDER_NAME,
-      model,
-      status: response.status,
-      body: errorText,
-      headers: response.headers,
-      surface: "transcription",
-    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      debugLogger.warn("Zoom Scribe transcription failed", {
+        status: response.status,
+        model,
+      });
+      throw providerHttpError({
+        provider: ZOOM_SCRIBE_PROVIDER_NAME,
+        model,
+        status: response.status,
+        body: errorText,
+        headers: response.headers,
+        surface: "transcription",
+      });
+    }
+    try {
+      return await response.json();
+    } catch (error) {
+      if (requestSignal.aborted) throw error;
+      throw providerError(PROVIDER_ERROR_CODES.ERROR, {
+        provider: ZOOM_SCRIBE_PROVIDER_NAME,
+        model,
+        surface: "transcription",
+        technicalDetails: {
+          underlyingError: "Fast returned a successful response without valid JSON",
+        },
+      });
+    }
+  } catch (error) {
+    // Caller cancellation remains an AbortError for the existing IPC/UI cancel path.
+    if (signal?.aborted) throw new DOMException("Cancelled", "AbortError");
+    if (timeout.aborted)
+      throw providerError(PROVIDER_ERROR_CODES.TIMEOUT, {
+        provider: ZOOM_SCRIBE_PROVIDER_NAME,
+        model,
+        surface: "transcription",
+      });
+    throw error;
   }
-  return response.json();
 }
 
 /**
@@ -83,6 +117,8 @@ export async function transcribeWithZoomScribe({
   proxyFetch,
   transcodeToM4a,
   limitBytes = ZOOM_SCRIBE_BODY_LIMIT_BYTES,
+  signal,
+  timeoutMs = ZOOM_SCRIBE_FAST_TIMEOUT_MS,
 }) {
   if (!apiKey) {
     throw providerError(PROVIDER_ERROR_CODES.KEY_MISSING, {
@@ -90,6 +126,7 @@ export async function transcribeWithZoomScribe({
       surface: "transcription",
     });
   }
+  signal?.throwIfAborted();
   const model = normalizeZoomScribeModel(requestedModel);
   const resolved = resolveZoomScribeLanguage({ model, language });
   logLanguageAdjustment(resolved, model, language);
@@ -100,6 +137,7 @@ export async function transcribeWithZoomScribe({
   let source = audioBuffer;
   let sendMime = effectiveMime;
   let built = null;
+  let transcoded = false;
   if (documented) {
     built = buildZoomScribeFastBody({
       audioBuffer,
@@ -117,7 +155,10 @@ export async function transcribeWithZoomScribe({
         { provider: ZOOM_SCRIBE_PROVIDER_NAME, surface: "transcription" }
       );
     }
-    source = await transcodeToM4a(audioBuffer);
+    signal?.throwIfAborted();
+    source = await transcodeToM4a(audioBuffer, { signal });
+    signal?.throwIfAborted();
+    transcoded = true;
     sendMime = "audio/mp4";
     built = buildZoomScribeFastBody({
       audioBuffer: source,
@@ -134,15 +175,37 @@ export async function transcribeWithZoomScribe({
     }
   }
 
-  const payload = await postFast({ apiKey, body: built.body, model, proxyFetch });
-  return { text: parseFastResponse(payload), model, mimeType: sendMime };
+  let payload;
+  try {
+    payload = await postFast({ apiKey, body: built.body, model, proxyFetch, signal, timeoutMs });
+  } catch (error) {
+    if (transcoded || !transcodeToM4a || ![413, 415].includes(error.status)) throw error;
+    signal?.throwIfAborted();
+    source = await transcodeToM4a(audioBuffer, { signal });
+    signal?.throwIfAborted();
+    sendMime = "audio/mp4";
+    built = buildZoomScribeFastBody({
+      audioBuffer: source,
+      mimeType: sendMime,
+      model,
+      language,
+      keyterms,
+    });
+    if (built.bytes > limitBytes)
+      throw providerError(PROVIDER_ERROR_CODES.PAYLOAD_TOO_LARGE, {
+        provider: ZOOM_SCRIBE_PROVIDER_NAME,
+        surface: "transcription",
+      });
+    payload = await postFast({ apiKey, body: built.body, model, proxyFetch, signal, timeoutMs });
+  }
+  return { text: parseFastResponse(payload, model), model, mimeType: sendMime };
 }
 
 // The dictation batch proxy (proxy-zoom-scribe-transcription). The renderer sends
 // the custom dictionary as `vocabulary`; it must reach the request as keyterms.
 export function transcribeZoomScribeProxyRequest(
   { audioBuffer, mimeType, model, language, vocabulary },
-  { apiKey, proxyFetch, transcodeToM4a }
+  { apiKey, proxyFetch, transcodeToM4a, signal }
 ) {
   return transcribeWithZoomScribe({
     apiKey,
@@ -153,5 +216,6 @@ export function transcribeZoomScribeProxyRequest(
     keyterms: vocabulary,
     proxyFetch,
     transcodeToM4a,
+    signal,
   });
 }

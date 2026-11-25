@@ -19,36 +19,20 @@ test("English-only models coerce every non-English language to en-US and report 
   });
 });
 
-test("multilingual maps the ten supported languages to locales and detects otherwise", async () => {
+test("multilingual always detects independently of app language", async () => {
   const { resolveZoomScribeLanguage } = await load();
-  assert.equal(
-    resolveZoomScribeLanguage({ model: "zoom-scribe-multilingual", language: "pt" }).language,
-    "pt-BR"
-  );
-  assert.equal(
-    resolveZoomScribeLanguage({ model: "zoom-scribe-multilingual", language: "zh" }).language,
-    "zh-CN"
-  );
-  assert.deepEqual(
-    resolveZoomScribeLanguage({ model: "zoom-scribe-multilingual", language: "auto" }),
-    {
+  for (const language of ["en", "pt", "zh", "ru", "auto", undefined]) {
+    assert.deepEqual(resolveZoomScribeLanguage({ model: "zoom-scribe-multilingual", language }), {
       detect: true,
       adjusted: null,
-    }
-  );
-  assert.deepEqual(
-    resolveZoomScribeLanguage({ model: "zoom-scribe-multilingual", language: "ru" }),
-    {
-      detect: true,
-      adjusted: "unsupported-language",
-    }
-  );
+    });
+  }
 });
 
 test("the Live session.update pins a locale or continuous detection, never both", async () => {
   const { buildLiveSessionUpdate } = await load();
   const pinned = buildLiveSessionUpdate({
-    model: "zoom-scribe-multilingual",
+    model: "zoom-scribe-de",
     language: "de",
     keyterms: ["OpenWhispr"],
   });
@@ -56,7 +40,7 @@ test("the Live session.update pins a locale or continuous detection, never both"
   assert.equal(pinned.language, undefined);
   assert.equal(pinned.config.language, "de-DE");
   assert.deepEqual(pinned.audio, { format: "pcm16" });
-  assert.equal(pinned.config.model, "zoom-scribe-multilingual");
+  assert.equal(pinned.config.model, "zoom-scribe-de");
   assert.equal(pinned.config.interim_results, true);
   assert.deepEqual(pinned.config.vocabulary, { phrases: ["OpenWhispr"] });
   assert.equal(pinned.config.language_detection, undefined);
@@ -102,16 +86,16 @@ test("Fast body carries a data URL and the same language rules", async () => {
   assert.deepEqual(auto.config.vocabulary, { phrases: ["Zoom"] });
 });
 
-test("speaker tags are removed and text_display is preferred over segments", async () => {
+test("literal speaker tags are retained and text_display is preferred over segments", async () => {
   const { stripSpeakerTags, parseFastResponse, normalizeZoomScribeModel } = await load();
-  assert.equal(stripSpeakerTags("[Speaker 1] hello there "), "hello there");
-  assert.equal(stripSpeakerTags("[SPK_2] hi [speaker_3] there"), "hi there");
-  assert.equal(stripSpeakerTags("[channel1]"), "");
+  assert.equal(stripSpeakerTags("[Speaker 1] hello there "), "[Speaker 1] hello there");
+  assert.equal(stripSpeakerTags("[SPK_2] hi [speaker_3] there"), "[SPK_2] hi [speaker_3] there");
+  assert.equal(stripSpeakerTags("[channel1]"), "[channel1]");
   assert.equal(stripSpeakerTags("plain text"), "plain text");
 
   assert.equal(
     parseFastResponse({ result: { text_display: "My VIN [Speaker 1] is." } }),
-    "My VIN is."
+    "My VIN [Speaker 1] is."
   );
   assert.equal(
     parseFastResponse({ result: { segments: [{ text: "one" }, { text: "two" }] } }),
@@ -121,4 +105,24 @@ test("speaker tags are removed and text_display is preferred over segments", asy
 
   assert.equal(normalizeZoomScribeModel("zoom-scribe-en"), "zoom-scribe-en");
   assert.equal(normalizeZoomScribeModel("whisper-1"), "zoom-scribe-multilingual");
+});
+
+test("Chinese spacing applies only to zh while preserving Latin spaces, newlines and literal tags", async () => {
+  const { cleanZoomScribeText, joinZoomScribeTurns, buildLiveSessionUpdate } = await load();
+  const text = "你 好 ， 世 界 hello world\n新 的 一 行 [Speaker 1]";
+  assert.equal(
+    cleanZoomScribeText(text, "zoom-scribe-zh"),
+    "你好，世界 hello world\n新的一行 [Speaker 1]"
+  );
+  assert.equal(cleanZoomScribeText(text, "zoom-scribe-multilingual"), text);
+  assert.equal(joinZoomScribeTurns(["你 好", "世 界"], "zoom-scribe-zh"), "你好世界");
+  assert.equal(
+    buildLiveSessionUpdate({ model: "zoom-scribe-multilingual", interimResults: false }).config
+      .interim_results,
+    false
+  );
+  assert.equal(
+    buildLiveSessionUpdate({ model: "zoom-scribe-multilingual" }).config.interim_results,
+    true
+  );
 });

@@ -57,6 +57,8 @@ export class PcmResampler {
     this.historyStart = 0;
     // Absolute input position of the next output sample.
     this.nextPosition = 0;
+    this.outputIndex = 0;
+    this.trailingByte = null;
     this.kernels = new Map();
   }
 
@@ -83,9 +85,13 @@ export class PcmResampler {
   }
 
   // Appends samples and returns the output that is now complete, as PCM16 LE.
-  // `pcmBuffer` is 16-bit little-endian; an odd trailing byte is ignored.
+  // An odd byte is carried into the next chunk to preserve PCM16 alignment.
   process(pcmBuffer) {
-    const count = Math.floor((pcmBuffer?.length ?? 0) / 2);
+    pcmBuffer = Buffer.from(pcmBuffer ?? []);
+    if (this.trailingByte !== null)
+      pcmBuffer = Buffer.concat([Buffer.from([this.trailingByte]), pcmBuffer]);
+    this.trailingByte = pcmBuffer.length % 2 ? pcmBuffer[pcmBuffer.length - 1] : null;
+    const count = Math.floor(pcmBuffer.length / 2);
     for (let i = 0; i < count; i++) this.history.push(pcmBuffer.readInt16LE(i * 2));
     return this.emit();
   }
@@ -100,14 +106,19 @@ export class PcmResampler {
   }
 
   emit() {
-    const { halfTaps, step } = this;
+    const { halfTaps } = this;
     const available = this.historyStart + this.history.length; // exclusive end
     const outputs = [];
     for (;;) {
       const center = Math.floor(this.nextPosition);
       // The window needs input up to center + halfTaps.
       if (center + halfTaps >= available) break;
-      const taps = this.kernelFor(this.nextPosition - center);
+      // Integer sample rates repeat exact rational phases (160 phases at 44.1k).
+      const fraction =
+        Number.isInteger(this.inputRate) && Number.isInteger(this.outputRate)
+          ? ((this.outputIndex * this.inputRate) % this.outputRate) / this.outputRate
+          : this.nextPosition - center;
+      const taps = this.kernelFor(fraction);
       const first = center - halfTaps + 1;
       let acc = 0;
       for (let k = 0; k < taps.length; k++) {
@@ -116,7 +127,8 @@ export class PcmResampler {
         acc += taps[k] * this.history[index - this.historyStart];
       }
       outputs.push(Math.max(-32768, Math.min(32767, Math.round(acc))));
-      this.nextPosition += step;
+      this.outputIndex += 1;
+      this.nextPosition = (this.outputIndex * this.inputRate) / this.outputRate;
     }
 
     // Keep only what the next output's window still needs.

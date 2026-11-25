@@ -116,6 +116,7 @@ test("the zoom-realtime token provider hands the saved key to the dictation sock
 class FakeSocket extends EventEmitter {
   constructor(script) {
     super();
+    this.readyState = 1;
     this.script = script;
     this.sent = [];
   }
@@ -125,6 +126,7 @@ class FakeSocket extends EventEmitter {
     this.script(this, message);
   }
   close() {
+    this.readyState = 3;
     this.emit("close", 1000);
   }
 }

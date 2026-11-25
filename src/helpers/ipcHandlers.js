@@ -74,19 +74,26 @@ const { createNoteAttendeesLookup, searchContacts } = require("./connectors/cont
 // The renderer's ModelRegistry is not main-loadable; the route resolver only
 // needs {id, baseUrl} per provider.
 const transcriptionProviderBaseUrls = () => modelRegistryData.transcriptionProviders;
-// Classified errors show the provider's display name; routes only carry its id.
 // Zoom Scribe Fast for the batch routes (retry, upload). The dictation batch
 // fallback reaches the same client through proxy-zoom-scribe-transcription.
-const zoomScribeDeps = (apiKey) => ({
+const zoomScribeDeps = (apiKey, signal) => ({
   apiKey,
+  signal,
   proxyFetch: (url, init = {}) => net.fetch(url, { ...init, useSessionCookies: false }),
-  transcodeToM4a: (buffer) => require("./ffmpegUtils").convertBufferToM4a(buffer),
+  transcodeToM4a: (buffer, options) => require("./ffmpegUtils").convertBufferToM4a(buffer, options),
 });
 // Batch routes (retry, upload) have no custom-dictionary input, matching the
 // other providers on those paths; the content is sniffed rather than trusted.
-const transcribeZoomScribeRoute = ({ apiKey, audioBuffer, mimeType, model, language }) =>
-  transcribeWithZoomScribe({ ...zoomScribeDeps(apiKey), audioBuffer, mimeType, model, language });
+const transcribeZoomScribeRoute = ({ apiKey, audioBuffer, mimeType, model, language, signal }) =>
+  transcribeWithZoomScribe({
+    ...zoomScribeDeps(apiKey, signal),
+    audioBuffer,
+    mimeType,
+    model,
+    language,
+  });
 
+// Classified errors show the provider display name; routes only carry its id.
 const transcriptionProviderName = (id) =>
   modelRegistryData.transcriptionProviders.find((p) => p.id === id)?.name || id;
 // ipcMain.handle keeps only the message when a promise rejects, dropping custom
@@ -5801,15 +5808,18 @@ class IPCHandlers {
       })
     );
 
-    ipcMain.handle(
+    handleAudioFeature(
       "proxy-zoom-scribe-transcription",
-      serializeIpcError(async (event, { audioBuffer, mimeType, model, language, vocabulary }) => {
-        const { text, model: usedModel } = await transcribeZoomScribeProxyRequest(
-          { audioBuffer, mimeType: mimeType || "audio/webm", model, language, vocabulary },
-          zoomScribeDeps(this.environmentManager.getZoomScribeKey())
-        );
-        return { text, model: usedModel };
-      })
+      "dictation",
+      serializeIpcError(
+        async (event, { audioBuffer, mimeType, model, language, vocabulary }, signal) => {
+          const { text, model: usedModel } = await transcribeZoomScribeProxyRequest(
+            { audioBuffer, mimeType: mimeType || "audio/webm", model, language, vocabulary },
+            zoomScribeDeps(this.environmentManager.getZoomScribeKey(), signal)
+          );
+          return { text, model: usedModel };
+        }
+      )
     );
 
     ipcMain.handle("get-corti-client-id", async () => {
@@ -10586,6 +10596,7 @@ class IPCHandlers {
               model: options.model,
               language: options.language,
               keyterms: options.keyterms,
+              interimResults: !!options.model && options.model !== "zoom-scribe-multilingual",
             });
             return;
           }
@@ -11452,6 +11463,9 @@ class IPCHandlers {
     });
 
     ipcMain.handle("dictation-realtime-finalize", async () => {
+      if (this._dictationStreaming instanceof ZoomScribeStreaming) {
+        return { success: true, ...(await this._dictationStreaming.disconnect()) };
+      }
       if (!(this._dictationStreaming instanceof OrukeetStreaming)) {
         return { success: false, error: "No Orukeet recording is active" };
       }
@@ -12540,6 +12554,7 @@ class IPCHandlers {
                 apiKey: this.environmentManager.getZoomScribeKey(),
                 audioBuffer: fs.readFileSync(realByok),
                 mimeType: providerContentType(realByok),
+                signal,
                 model: route.model,
                 language: route.language,
               });

@@ -91,3 +91,49 @@ test("clears its timers so a settled wait leaves no handles behind", async (t) =
   assert.equal(manager.streamingTextBump, null);
   assert.equal(manager.streamingTextDebounce, null);
 });
+
+test("Zoom closes after the worklet flush without waiting for transcript settling", async (t) => {
+  const manager = await loadManager(t);
+  const order = [];
+  Object.assign(manager, {
+    _activeStreamingProviderName: "zoom-realtime",
+    _streamingCancellationGeneration: 0,
+    micRecovery: { stop() {} },
+    streamingCleanupFns: [],
+    finishStreamingFallbackSegment: async () => {},
+    mergeRecordedSegments: async () => null,
+    cleanupStreamingAudio: () => {},
+    cleanupStreamingListeners: () => {},
+    awaitStreamingTextSettled: () =>
+      assert.fail("Zoom must close before waiting for the final transcript"),
+    streamingProcessor: {
+      port: {
+        postMessage: () => {
+          order.push("worklet stop");
+          queueMicrotask(() => {
+            order.push("tail PCM sent");
+            order.push("flush acknowledged");
+            manager._streamingFlushResolve();
+          });
+        },
+      },
+      disconnect: () => order.push("worklet disconnected"),
+    },
+  });
+  global.window.electronAPI.dictationRealtimeFinalize = async () => {
+    order.push("session.close");
+    // Exit after the acknowledged close so unrelated cleanup/delivery is excluded.
+    manager._streamingCancellationGeneration++;
+    return { success: true, text: "tail" };
+  };
+  global.window.electronAPI.dictationRealtimeStop = async () => ({ success: true, text: "tail" });
+  const ms = await elapsed(() => manager._finalizeStreamingRecording(null));
+  assert.deepEqual(order, [
+    "worklet stop",
+    "tail PCM sent",
+    "flush acknowledged",
+    "worklet disconnected",
+    "session.close",
+  ]);
+  assert.ok(ms < 500, `close was delayed by transcript settling: ${ms}ms`);
+});

@@ -3233,7 +3233,7 @@
         "assemblyai_universal_streaming_multilingual": "不会变动的实时转录（多语言）",
         "assemblyai_universal_3_5_pro": "最高精度实时转录，支持 18 种语言",
         "zoom_scribe_multilingual": "支持 10 种语言的实时和文件转写，可自动检测语言",
-        "zoom_scribe_en": "指定语种的实时和文件转写",
+        "zoom_scribe_single_language": "指定语种的实时和文件转写",
         "zoom_scribe_en_pro": "英文最高精度，需要 Zoom Scribe 高级模型权限。",
         "assemblyai_universal_3_6_pro": "最高精度实时转录，支持 32 种语言",
         "mistral_voxtral_mini_transcribe_3_0": "支持 50 多种语言的快速转录（预览版）",

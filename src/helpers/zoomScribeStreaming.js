@@ -21,7 +21,8 @@ import {
   buildLiveSessionUpdate,
   normalizeZoomScribeModel,
   resolveZoomScribeLanguage,
-  stripSpeakerTags,
+  cleanZoomScribeText,
+  joinZoomScribeTurns,
 } from "./zoomScribeProtocol.js";
 import { PROVIDER_ERROR_CODES, providerError, providerHttpError } from "./providerHttpErrors.js";
 import { ZOOM_SCRIBE_PROVIDER_NAME } from "./zoomScribeTranscription.js";
@@ -33,7 +34,7 @@ const HANDSHAKE_TIMEOUT_MS = 15000;
 const CLOSE_TIMEOUT_MS = 5000;
 // Audio captured before session.updated is acknowledged. Older frames are dropped.
 // Counted in input bytes (the caller's rate, before resampling).
-const MAX_PENDING_BYTES = 16000 * 2 * 5;
+const MAX_PENDING_SECONDS = 5;
 
 const defaultCreateSocket = (url, protocols, options) => new WebSocket(url, protocols, options);
 
@@ -88,6 +89,7 @@ export class ZoomScribeStreaming {
     this.bufferingAudio = false;
     this.pendingAudio = [];
     this.pendingBytes = 0;
+    this.maxPendingBytes = ZOOM_SCRIBE_LIVE_SAMPLE_RATE * 2 * MAX_PENDING_SECONDS;
     this.closing = false;
     this.closedWaiter = null;
     this.pendingConnect = null;
@@ -115,10 +117,10 @@ export class ZoomScribeStreaming {
   }
 
   getFullTranscript() {
-    return this.completedSegments.join(" ");
+    return joinZoomScribeTurns(this.completedSegments, this.model);
   }
 
-  async connect({ apiKey, model, language, keyterms, sampleRate } = {}) {
+  async connect({ apiKey, model, language, keyterms, sampleRate, interimResults = true } = {}) {
     if (!apiKey) {
       throw providerError(PROVIDER_ERROR_CODES.KEY_MISSING, {
         provider: ZOOM_SCRIBE_PROVIDER_NAME,
@@ -129,6 +131,7 @@ export class ZoomScribeStreaming {
       throw new RangeError(`Zoom Scribe sampleRate must be a positive number, got ${sampleRate}`);
     }
     if (this.isConnected) return;
+    this.pendingConnect?.(new DOMException("Zoom Scribe connection superseded", "AbortError"));
     // A socket the server already closed is dropped without touching the buffered
     // audio, which belongs to the dictation that is starting.
     if (this.ws) {
@@ -140,6 +143,9 @@ export class ZoomScribeStreaming {
         // Closing an already-closed socket is not an error.
       }
     }
+    this.sessionReady = false;
+    this.isConnected = false;
+    this.maxPendingBytes = (sampleRate ?? ZOOM_SCRIBE_LIVE_SAMPLE_RATE) * 2 * MAX_PENDING_SECONDS;
     this.audioSent = false;
     this.audioBytesSent = 0;
     this.connectionLossNotified = false;
@@ -164,7 +170,7 @@ export class ZoomScribeStreaming {
         requestedLanguage: language || null,
       });
     }
-    const update = buildLiveSessionUpdate({ model, language, keyterms });
+    const update = buildLiveSessionUpdate({ model, language, keyterms, interimResults });
 
     await new Promise((resolve, reject) => {
       let settled = false;
@@ -186,19 +192,27 @@ export class ZoomScribeStreaming {
         HANDSHAKE_TIMEOUT_MS
       );
 
-      const ws = this.createSocket(ZOOM_SCRIBE_LIVE_URL, [ZOOM_SCRIBE_LIVE_SUBPROTOCOL], {
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "x-zm-trackingid": this.trackingId,
-        },
-      });
+      let ws;
+      try {
+        ws = this.createSocket(ZOOM_SCRIBE_LIVE_URL, [ZOOM_SCRIBE_LIVE_SUBPROTOCOL], {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "x-zm-trackingid": this.trackingId,
+          },
+        });
+      } catch (error) {
+        finish(error);
+        return;
+      }
       this.ws = ws;
 
       ws.on("open", () => {
+        if (this.ws !== ws) return;
         ws.send(JSON.stringify(update));
       });
 
       ws.on("unexpected-response", (_request, response) => {
+        if (this.ws !== ws) return;
         const chunks = [];
         response.on("data", (chunk) => chunks.push(chunk));
         response.on("end", () => {
@@ -225,13 +239,15 @@ export class ZoomScribeStreaming {
       ws.on("error", (error) => {
         if (!current()) return;
         if (!settled) return finish(error);
-        this.emitError(error);
+        this.teardown();
+        this.notifyConnectionLost(error);
       });
 
       ws.on("close", (code) => {
         if (!current()) return;
         const wasReady = this.isConnected;
         this.isConnected = false;
+        this.sessionReady = false;
         if (this.closedWaiter) this.closedWaiter.resolve();
         if (!settled) return finish(new Error(`Zoom Scribe closed before ready (code: ${code})`));
         if (wasReady && !this.closing) {
@@ -244,6 +260,9 @@ export class ZoomScribeStreaming {
       });
     });
 
+    if (!this.sessionReady || this.ws?.readyState !== WebSocket.OPEN) {
+      throw new Error("Zoom Scribe closed immediately after readiness");
+    }
     this.isConnected = true;
     this.sessionStartedAt = Date.now();
     this.flushPendingAudio();
@@ -278,19 +297,20 @@ export class ZoomScribeStreaming {
         onReady?.();
         break;
       case "transcription.delta": {
-        const text = stripSpeakerTags(message.delta || "");
+        const text = cleanZoomScribeText(message.delta || "", this.model);
         this.partialText = text;
         this.onPartialTranscript?.(text);
         break;
       }
       case "transcription.completed": {
-        const text = stripSpeakerTags(message.transcript || "");
+        const text = cleanZoomScribeText(message.transcript || "", this.model);
         if (message.language && this.onLanguage) {
           this.onLanguage({ language: message.language });
         }
+        this.partialText = "";
+        this.onPartialTranscript?.("");
         if (text) {
           this.completedSegments.push(text);
-          this.partialText = "";
           this.onFinalTranscript?.(
             this.getFullTranscript(),
             this.turnTimestamp(message.audio_start_ms)
@@ -302,11 +322,20 @@ export class ZoomScribeStreaming {
         const error = zoomLiveErrorFromEvent(message.error, model ?? this.model);
         if (message.error?.fatal === false) break;
         if (!this.sessionReady) onReady?.(error);
-        else this.emitError(error);
+        else {
+          this.teardown();
+          this.notifyConnectionLost(error);
+        }
         break;
       }
       case "session.closed":
-        if (this.closedWaiter) this.closedWaiter.resolve();
+        if (this.closing) this.closedWaiter?.resolve();
+        else {
+          const hadAudio = this.audioSent;
+          this.teardown();
+          if (hadAudio)
+            this.notifyConnectionLost(new Error("Zoom Scribe session ended unexpectedly"));
+        }
         break;
       default:
         break;
@@ -347,8 +376,15 @@ export class ZoomScribeStreaming {
       if (buffer && this.bufferingAudio) {
         this.pendingAudio.push(buffer);
         this.pendingBytes += buffer.length;
-        while (this.pendingBytes > MAX_PENDING_BYTES && this.pendingAudio.length > 1) {
+        while (this.pendingBytes > this.maxPendingBytes && this.pendingAudio.length > 1) {
           this.pendingBytes -= this.pendingAudio.shift().length;
+        }
+        if (this.pendingBytes > this.maxPendingBytes) {
+          const excess = this.pendingBytes - this.maxPendingBytes;
+          // Keep a PCM16 sample boundary when trimming a single large frame.
+          const trim = Math.ceil(excess / 2) * 2;
+          this.pendingAudio[0] = this.pendingAudio[0].subarray(trim);
+          this.pendingBytes = this.pendingAudio[0].length;
         }
       }
       return false;
@@ -370,7 +406,15 @@ export class ZoomScribeStreaming {
 
   // Ends the session and waits for session.closed. The remaining completed events
   // arrive in between, so they are read before the socket is closed.
-  async disconnect({ commit = true } = {}) {
+  disconnect(options = {}) {
+    if (this.closePromise) return this.closePromise;
+    this.closePromise = this.finishDisconnect(options).finally(() => {
+      this.closePromise = null;
+    });
+    return this.closePromise;
+  }
+
+  async finishDisconnect({ commit = true } = {}) {
     const text = this.getFullTranscript();
     if (!this.ws) return { text };
     if (!commit || !this.isConnected) {
@@ -407,11 +451,15 @@ export class ZoomScribeStreaming {
     this.isConnected = false;
     this.sessionReady = false;
     this.closing = false;
+    this.closedWaiter?.resolve();
     this.closedWaiter = null;
     this.pendingAudio = [];
     this.pendingBytes = 0;
     this.bufferingAudio = false;
     this.resampler = null;
+    const pending = this.pendingConnect;
+    this.pendingConnect = null;
+    pending?.(new DOMException("Zoom Scribe connection cancelled", "AbortError"));
     if (socket) {
       try {
         socket.removeAllListeners?.("message");

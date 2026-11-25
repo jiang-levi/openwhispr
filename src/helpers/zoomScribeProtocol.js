@@ -11,8 +11,9 @@ export const ZOOM_SCRIBE_LIVE_SUBPROTOCOL = "live-asr";
 export const ZOOM_SCRIBE_LIVE_SAMPLE_RATE = 16000;
 export const ZOOM_SCRIBE_TRACKING_PREFIX = "zoom_ai_community_openwhispr_";
 
-// The gateway rejects bodies somewhere between 65 and 72 MB with an HTML 413, so
-// the cap is applied to the encoded request body (after base64), not the raw file.
+// Application limit for the complete encoded JSON body, not a server guarantee.
+// Historical gateway probes accepted 65 MB and rejected 72 MB; published limits
+// differ. A server 413/415 can therefore trigger one compression retry below this cap.
 export const ZOOM_SCRIBE_BODY_LIMIT_BYTES = 50 * 1024 * 1024;
 
 // Containers Zoom Scribe documents for Fast. Anything else is re-encoded to m4a
@@ -93,19 +94,28 @@ export function resolveZoomScribeLanguage({ model, language }) {
       adjusted: requestedAuto || base === locale.split("-")[0] ? null : "single-language-model",
     };
   }
-  if (requestedAuto) return { detect: true, adjusted: null };
-  const locale = ZOOM_SCRIBE_LOCALES[base];
-  if (locale) return { language: locale, adjusted: null };
-  return { detect: true, adjusted: "unsupported-language" };
+  // Multilingual always detects continuously, independently of app language.
+  return { detect: true, adjusted: null };
 }
 
-// Zoom appends speaker or channel tags to some segments. Dictation wants the words.
+// Plain transcript fields can contain literal speaker/channel text. Do not strip
+// bracketed words: polishing is disabled and speaker identity is structured.
 export function stripSpeakerTags(text) {
-  if (typeof text !== "string") return "";
-  return text
-    .replace(/\[(?:speaker|spk|channel)[\s_]*\w*\]\s*/gi, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
+  return typeof text === "string" ? text.trim() : "";
+}
+
+export function cleanZoomScribeText(text, model) {
+  text = stripSpeakerTags(text);
+  if (model !== "zoom-scribe-zh") return text;
+  // Preserve Latin word spaces and line breaks, including mixed-language speech.
+  return text.replace(
+    /([\p{Script=Han}，。！？；：、（）《》“”‘’])[ \t]+(?=[\p{Script=Han}，。！？；：、（）《》“”‘’])/gu,
+    "$1"
+  );
+}
+
+export function joinZoomScribeTurns(turns, model) {
+  return cleanZoomScribeText(turns.join(" "), model);
 }
 
 export function normalizeVocabulary(terms) {
@@ -125,12 +135,12 @@ function languageFields(resolved) {
 }
 
 // First frame on the Live socket. Audio is sent only after session.updated.
-export function buildLiveSessionUpdate({ model, language, keyterms }) {
+export function buildLiveSessionUpdate({ model, language, keyterms, interimResults = true }) {
   const resolved = resolveZoomScribeLanguage({ model, language });
   const phrases = normalizeVocabulary(keyterms);
   const config = {
     model,
-    interim_results: true,
+    interim_results: interimResults,
     ...(phrases.length > 0 ? { vocabulary: { phrases } } : {}),
     ...languageFields(resolved),
   };
@@ -138,6 +148,7 @@ export function buildLiveSessionUpdate({ model, language, keyterms }) {
     type: "session.update",
     audio: { format: "pcm16" },
     config,
+    outputs: { text_polishing: { enabled: false } },
     turn_detection: { silence_duration_ms: ZOOM_SCRIBE_SILENCE_MS },
   };
 }
@@ -147,6 +158,7 @@ export function buildFastRequestBody({ audioBase64, mimeType, model, language, k
   const resolved = resolveZoomScribeLanguage({ model, language });
   const phrases = normalizeVocabulary(keyterms);
   return {
+    outputs: { text_polishing: { enabled: false } },
     file: `data:${mimeType};base64,${audioBase64}`,
     config: {
       ...languageFields(resolved),
@@ -157,14 +169,16 @@ export function buildFastRequestBody({ audioBase64, mimeType, model, language, k
 }
 
 // Prefers result.text_display; falls back to joining segment texts.
-export function parseFastResponse(payload) {
+export function parseFastResponse(payload, model) {
   const result = payload?.result;
-  if (typeof result?.text_display === "string") return stripSpeakerTags(result.text_display);
+  if (typeof result?.text_display === "string")
+    return cleanZoomScribeText(result.text_display, model);
   if (Array.isArray(result?.segments)) {
-    return stripSpeakerTags(
+    return cleanZoomScribeText(
       result.segments
         .map((segment) => (typeof segment?.text === "string" ? segment.text : ""))
-        .join(" ")
+        .join(" "),
+      model
     );
   }
   return "";
