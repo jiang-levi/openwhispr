@@ -10596,7 +10596,7 @@ class IPCHandlers {
               model: options.model,
               language: options.language,
               keyterms: options.keyterms,
-              interimResults: !!options.model && options.model !== "zoom-scribe-multilingual",
+              context: "dictation",
             });
             return;
           }

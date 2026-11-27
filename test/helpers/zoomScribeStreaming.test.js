@@ -357,3 +357,77 @@ test("an unsolicited session.closed triggers recovery and simultaneous disconnec
     }
   );
 });
+
+test("dictation disables interim results for the resolved Multilingual model after stale-ID fallback", async () => {
+  const { ZoomScribeStreaming } = await load();
+  const { EventEmitter } = require("node:events");
+  for (const { model, context, expectedModel, interim } of [
+    {
+      model: "legacy-model",
+      context: "dictation",
+      expectedModel: "zoom-scribe-multilingual",
+      interim: false,
+    },
+    { model: "", context: "dictation", expectedModel: "zoom-scribe-multilingual", interim: false },
+    {
+      model: "zoom-scribe-en",
+      context: "dictation",
+      expectedModel: "zoom-scribe-en",
+      interim: true,
+    },
+    { model: "legacy-model", expectedModel: "zoom-scribe-multilingual", interim: true },
+  ]) {
+    const socket = new EventEmitter();
+    socket.readyState = 1;
+    socket.close = () => {};
+    const sent = [];
+    socket.send = (data) => {
+      const message = JSON.parse(data);
+      sent.push(message);
+      if (message.type === "session.update")
+        socket.emit("message", Buffer.from(JSON.stringify({ type: "session.updated" })));
+    };
+    const client = new ZoomScribeStreaming({ createSocket: () => socket });
+    try {
+      const connecting = client.connect({ apiKey: "k", model, context });
+      socket.emit("open");
+      await connecting;
+      assert.equal(sent[0].config.model, expectedModel);
+      assert.equal(sent[0].config.interim_results, interim);
+    } finally {
+      client.cleanup();
+    }
+  }
+});
+
+test("pre-ready queue overflow preserves PCM16 alignment across odd-byte frames", async () => {
+  const { ZoomScribeStreaming } = await load();
+  const { PcmResampler } = await import("../../src/helpers/pcmResampler.js");
+  await withLiveServer(
+    (ws, message) => {
+      if (message.type === "session.update") ws.send(JSON.stringify({ type: "session.updated" }));
+      if (message.type === "session.close") ws.send(JSON.stringify({ type: "session.closed" }));
+    },
+    async ({ url, seen }) => {
+      const client = new ZoomScribeStreaming({ createSocket: createSocketFor(url) });
+      const input = Buffer.alloc(240002);
+      for (let i = 0; i < input.length / 2; i++) input.writeInt16LE((i % 20000) - 10000, i * 2);
+      try {
+        const connecting = client.connect({ apiKey: "k", sampleRate: 24000 });
+        client.sendAudio(input.subarray(0, 3));
+        client.sendAudio(input.subarray(3, 240001));
+        client.sendAudio(input.subarray(240001));
+        await connecting;
+        await client.disconnect();
+        const reference = new PcmResampler({ inputRate: 24000, outputRate: 16000 });
+        const expected = Buffer.concat([reference.process(input.subarray(2)), reference.flush()]);
+        assert.ok(
+          Buffer.concat(seen.frames).equals(expected),
+          "wire PCM must match the aligned retained audio"
+        );
+      } finally {
+        client.cleanup();
+      }
+    }
+  );
+});

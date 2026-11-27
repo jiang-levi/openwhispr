@@ -14,6 +14,7 @@
 // accumulated text; a meeting reads its per-turn text from completedSegments.
 import WebSocket from "ws";
 import {
+  ZOOM_SCRIBE_DEFAULT_MODEL,
   ZOOM_SCRIBE_LIVE_SAMPLE_RATE,
   ZOOM_SCRIBE_LIVE_SUBPROTOCOL,
   ZOOM_SCRIBE_LIVE_URL,
@@ -120,7 +121,15 @@ export class ZoomScribeStreaming {
     return joinZoomScribeTurns(this.completedSegments, this.model);
   }
 
-  async connect({ apiKey, model, language, keyterms, sampleRate, interimResults = true } = {}) {
+  async connect({
+    apiKey,
+    model,
+    language,
+    keyterms,
+    sampleRate,
+    interimResults = true,
+    context,
+  } = {}) {
     if (!apiKey) {
       throw providerError(PROVIDER_ERROR_CODES.KEY_MISSING, {
         provider: ZOOM_SCRIBE_PROVIDER_NAME,
@@ -157,6 +166,9 @@ export class ZoomScribeStreaming {
         ? new PcmResampler({ inputRate: sampleRate, outputRate: ZOOM_SCRIBE_LIVE_SAMPLE_RATE })
         : null;
     model = normalizeZoomScribeModel(model);
+    // Decide after normalization: stale IDs can resolve to Multilingual too.
+    // Meeting callers keep live captions, including one-speaker mono streams.
+    if (context === "dictation" && model === ZOOM_SCRIBE_DEFAULT_MODEL) interimResults = false;
     this.model = model;
     this.language = language ?? null;
     this.trackingId = `${ZOOM_SCRIBE_TRACKING_PREFIX}${randomUUID()}`;
@@ -376,15 +388,16 @@ export class ZoomScribeStreaming {
       if (buffer && this.bufferingAudio) {
         this.pendingAudio.push(buffer);
         this.pendingBytes += buffer.length;
-        while (this.pendingBytes > this.maxPendingBytes && this.pendingAudio.length > 1) {
-          this.pendingBytes -= this.pendingAudio.shift().length;
-        }
-        if (this.pendingBytes > this.maxPendingBytes) {
-          const excess = this.pendingBytes - this.maxPendingBytes;
-          // Keep a PCM16 sample boundary when trimming a single large frame.
-          const trim = Math.ceil(excess / 2) * 2;
-          this.pendingAudio[0] = this.pendingAudio[0].subarray(trim);
-          this.pendingBytes = this.pendingAudio[0].length;
+        // Frames can split a PCM16 sample. Evict a whole number of samples
+        // across frame boundaries so the retained stream starts on a low byte.
+        let dropBytes = Math.max(0, Math.ceil((this.pendingBytes - this.maxPendingBytes) / 2) * 2);
+        while (dropBytes > 0 && this.pendingAudio.length > 0) {
+          const first = this.pendingAudio[0];
+          const drop = Math.min(first.length, dropBytes);
+          if (drop === first.length) this.pendingAudio.shift();
+          else this.pendingAudio[0] = first.subarray(drop);
+          this.pendingBytes -= drop;
+          dropBytes -= drop;
         }
       }
       return false;
